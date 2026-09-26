@@ -88,6 +88,19 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
 - Wake words: only okay_nabu, hey_jarvis, alexa, hey_mycroft exist; "Hey Jarvis" did not trigger reliably with
   Swedish pronunciation and was reverted.
 
+## Versioning (always)
+- Semantic versioning, single source of truth: `substitutions: version` in `waveshare-voice.yaml`. It feeds
+  `esphome: project: version` (shown in Home Assistant device info) and the statistics page.
+- Every change that is committed gets a version bump: PATCH for fixes/tweaks, MINOR for new features, MAJOR for
+  breaking changes (e.g. new secrets required, re-pairing with HA). 1.0.0 once it has run stably in daily use.
+- For each version: update `CHANGELOG.md` (Keep a Changelog), flash the device, commit, annotated tag `vX.Y.Z`,
+  push commit and tag, create a GitHub release from the changelog entry.
+
+## Git
+- Remote `origin`: https://github.com/unir0x/waveshare-voice-satellite (private), branch `master`.
+- Before committing, scan staged files for secrets (`git grep --cached` for the WiFi password, API key, MAC).
+  `secrets.yaml` and `.esphome/` (compiled-in secrets) must stay ignored.
+
 ## Ideas / not done
 - Verify the click at the end of warnings is gone; else toggle the amp around the volume restore.
 - Power: WiFi `power_save_mode: light`, amp off when idle.

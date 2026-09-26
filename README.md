@@ -68,6 +68,9 @@ I2C: SDA GPIO15, SCL GPIO14. I2S: MCLK GPIO42, BCLK GPIO9, WS GPIO45, mic in GPI
 
 ## Status
 
+Current version: see `CHANGELOG.md` (semantic versioning; the firmware version is shown in Home Assistant and on
+the statistics page).
+
 Working: wake word, Assist round trip with clear audio, UI pages, sensors, battery warnings, volume page.
 
 Known issues and ideas:
