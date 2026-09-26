@@ -1,0 +1,9 @@
+# Secrets (WiFi, API key, device address) - see secrets.example.yaml
+secrets.yaml
+
+# ESPHome build output (contains compiled-in secrets)
+.esphome/
+
+__pycache__/
+*.log
+/*.txt

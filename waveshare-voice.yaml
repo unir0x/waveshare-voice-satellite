@@ -1,0 +1,1326 @@
+substitutions:
+  device_name: "waveshare-voice-satellite"
+  friendly_name: "Waveshare Voice Satellite"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  includes:
+    - sysinfo.h
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: update_vol_ui
+      - pcf85063.read_time:
+          id: rtc_time
+      - lambda: |-
+          uint32_t flash = 0;
+          esp_flash_get_size(nullptr, &flash);
+          const esp_partition_t *run = esp_ota_get_running_partition();
+          esp_image_metadata_t meta{};
+          esp_partition_pos_t pos = {run->address, run->size};
+          float fw = 0;
+          if (esp_image_get_metadata(&pos, &meta) == ESP_OK)
+            fw = meta.image_len / 1048576.0f;
+          id(flash_info) = str_sprintf("%.0f MB, firmware %.2f / %.2f MB (%s)", flash / 1048576.0f, fw,
+                                       run->size / 1048576.0f, run->label);
+      - script.execute: screen_wake
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+  level: DEBUG
+  logs:
+    micro_wake_word: INFO
+    ring_buffer: INFO
+    axp2101_lite: INFO
+    sensor: INFO
+    font: ERROR
+    i2s_audio.microphone: INFO
+    api: INFO
+    api.connection: INFO
+    api.proto: INFO
+    wifi: INFO
+    mipi_spi: INFO
+    display: INFO
+    component: INFO
+    binary_sensor: INFO
+
+i2c:
+  - id: bus_a
+    sda: GPIO15
+    scl: GPIO14
+    scan: true
+    frequency: 400kHz
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  actions:
+    - action: test_battery_warning
+      variables:
+        level: int
+      then:
+        - script.execute:
+            id: low_battery_warn
+            level: !lambda return level;
+
+ota:
+  - platform: esphome
+    encryption:
+      key: !secret api_encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+
+  ap:
+    ssid: "Waveshare-Voice-Fallback"
+
+captive_portal:
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [axp2101_lite]
+
+axp2101_lite:
+  id: pmic
+  i2c_id: bus_a
+  update_interval: 10s
+  battery_level:
+    id: batt_level
+    name: "Battery Level"
+    on_value:
+      - lambda: |-
+          if (x >= 25 || id(batt_charging).state || id(usb_connected).state) {
+            id(batt_warn_level) = 100;
+            return;
+          }
+          int level = 0;
+          for (int t : {5, 10, 15, 20}) {
+            if (x <= t) {
+              level = t;
+              break;
+            }
+          }
+          if (level > 0 && level < id(batt_warn_level)) {
+            id(batt_warn_level) = level;
+            if (id(warn_volume) > 0.0f)
+              id(low_battery_warn).execute(level);
+          }
+  battery_voltage:
+    id: batt_voltage
+    name: "Battery Voltage"
+  charging:
+    id: batt_charging
+    name: "Battery Charging"
+  battery_connected:
+    id: batt_connected
+    name: "Battery Connected"
+  usb_voltage:
+    id: usb_voltage
+    name: "USB Voltage"
+  system_voltage:
+    id: sys_voltage
+    name: "System Voltage"
+  temperature:
+    id: pmic_temp
+    name: "PMIC Temperature"
+  usb_connected:
+    id: usb_connected
+    name: "USB Connected"
+  charge_state:
+    id: charge_state
+    name: "Charge State"
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      id: wifi_ip
+    ssid:
+      id: wifi_ssid
+    bssid:
+      id: wifi_bssid
+    mac_address:
+      id: wifi_mac
+  - platform: debug
+    reset_reason:
+      id: reset_reason
+      name: "Reset Reason"
+
+globals:
+  - id: va_state
+    type: std::string
+    initial_value: '"Startar"'
+  - id: screen_on
+    type: bool
+    initial_value: "true"
+  - id: last_stt
+    type: std::string
+    initial_value: '"-"'
+  - id: face_mode
+    type: int
+    initial_value: "5"
+  - id: flash_info
+    type: std::string
+    initial_value: '"-"'
+  - id: batt_warn_level
+    type: int
+    initial_value: "100"
+  - id: warn_was_muted
+    type: bool
+    initial_value: "false"
+  - id: warn_prev_volume
+    type: float
+    initial_value: "1.0"
+  - id: warn_active
+    type: bool
+    initial_value: "false"
+  - id: warn_volume
+    type: float
+    restore_value: true
+    initial_value: "1.0"
+
+script:
+  - id: screen_wake
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: return !id(screen_on);
+          then:
+            - lambda: |-
+                id(screen_on) = true;
+                lv_obj_align(id(face), LV_ALIGN_CENTER, (int) (esp_random() % 17) - 8, (int) (esp_random() % 17) - 8);
+            - script.execute: refresh_labels
+            - lvgl.widget.hide: blackout
+            - lvgl.resume:
+            - delay: 50ms
+            - lambda: id(main_display).set_brightness(0xD0);
+      - wait_until:
+          not:
+            voice_assistant.is_running:
+      - delay: 30s
+      - lambda: id(screen_on) = false;
+      - lvgl.widget.show: blackout
+      - delay: 200ms
+      - lambda: id(main_display).set_brightness(0);
+      - lvgl.pause:
+
+  - id: low_battery_warn
+    mode: queued
+    parameters:
+      level: int
+    then:
+      - wait_until:
+          condition:
+            not:
+              voice_assistant.is_running:
+          timeout: 60s
+      - script.execute: screen_wake
+      - micro_wake_word.stop:
+      - lambda: |-
+          id(warn_active) = true;
+          id(warn_was_muted) = id(va_media_player).is_muted();
+          id(warn_prev_volume) = id(va_media_player).volume;
+      - media_player.unmute: va_media_player
+      - media_player.volume_set:
+          id: va_media_player
+          volume: !lambda return id(warn_volume);
+      - delay: 200ms
+      - media_player.speaker.play_on_device_media_file:
+          media_file: snd_low_battery
+          announcement: true
+      - delay: 300ms
+      - wait_until:
+          condition:
+            not:
+              media_player.is_announcing: va_media_player
+          timeout: 10s
+      - delay: 250ms
+      - if:
+          condition:
+            lambda: return level == 20;
+          then:
+            - media_player.speaker.play_on_device_media_file:
+                media_file: snd_pct_20
+                announcement: true
+      - if:
+          condition:
+            lambda: return level == 15;
+          then:
+            - media_player.speaker.play_on_device_media_file:
+                media_file: snd_pct_15
+                announcement: true
+      - if:
+          condition:
+            lambda: return level == 10;
+          then:
+            - media_player.speaker.play_on_device_media_file:
+                media_file: snd_pct_10
+                announcement: true
+      - if:
+          condition:
+            lambda: return level == 5;
+          then:
+            - media_player.speaker.play_on_device_media_file:
+                media_file: snd_pct_5
+                announcement: true
+      - delay: 300ms
+      - wait_until:
+          condition:
+            not:
+              media_player.is_announcing: va_media_player
+          timeout: 10s
+      - delay: 250ms
+      - media_player.speaker.play_on_device_media_file:
+          media_file: snd_connect_charger
+          announcement: true
+      - delay: 500ms
+      - wait_until:
+          condition:
+            not:
+              media_player.is_announcing: va_media_player
+          timeout: 20s
+      - delay: 700ms
+      - media_player.volume_set:
+          id: va_media_player
+          volume: !lambda return id(warn_prev_volume);
+      - if:
+          condition:
+            lambda: return id(warn_was_muted);
+          then:
+            - media_player.mute: va_media_player
+      - delay: 500ms
+      - lambda: id(warn_active) = false;
+      - script.execute: update_vol_ui
+      - micro_wake_word.start:
+
+  - id: play_test_phrase
+    mode: single
+    then:
+      - wait_until:
+          condition:
+            not:
+              voice_assistant.is_running:
+          timeout: 10s
+      - micro_wake_word.stop:
+      - delay: 200ms
+      - media_player.speaker.play_on_device_media_file:
+          media_file: snd_test_volume
+          announcement: true
+      - delay: 300ms
+      - wait_until:
+          condition:
+            not:
+              media_player.is_announcing: va_media_player
+          timeout: 10s
+      - micro_wake_word.start:
+
+  - id: update_vol_ui
+    then:
+      - lambda: |-
+          auto to_pos = [](bool off, float v) -> int {
+            if (off || v <= 0.0f)
+              return 0;
+            int p = (int) lroundf((v - 0.80f) / 0.05f) + 1;
+            return p < 1 ? 1 : (p > 5 ? 5 : p);
+          };
+          auto label = [](int pos) -> std::string {
+            return pos == 0 ? std::string("OFF") : str_sprintf("%d %%", 75 + pos * 5);
+          };
+          int a = to_pos(id(va_media_player).is_muted(), id(va_media_player).volume);
+          int w = to_pos(false, id(warn_volume));
+          if (!id(warn_active) && !lv_obj_has_state(id(sl_assist), LV_STATE_PRESSED)) {
+            lv_slider_set_value(id(sl_assist), a, LV_ANIM_OFF);
+            lv_label_set_text(id(lbl_assist_val), label(a).c_str());
+          }
+          if (!lv_obj_has_state(id(sl_warn), LV_STATE_PRESSED)) {
+            lv_slider_set_value(id(sl_warn), w, LV_ANIM_OFF);
+            lv_label_set_text(id(lbl_warn_val), label(w).c_str());
+          }
+
+  - id: refresh_labels
+    then:
+      - lvgl.label.update:
+          id: lbl_state
+          text: !lambda return id(va_state);
+      - lvgl.label.update:
+          id: lbl_ip
+          text: !lambda return id(wifi_ip).state;
+      - lvgl.label.update:
+          id: lbl_batt
+          text: !lambda |-
+            if (!id(batt_connected).state) return std::string("Inget batteri");
+            return str_sprintf("Batteri: %.0f%% (%.2f V)%s", id(batt_level).state, id(batt_voltage).state,
+                               id(batt_charging).state ? " laddar" : "");
+      - lvgl.label.update:
+          id: lbl_stats
+          text: !lambda |-
+            uint32_t up = (uint32_t) id(uptime_s).state;
+            nvs_stats_t nv{};
+            nvs_get_stats(nullptr, &nv);
+            esp_chip_info_t ci;
+            esp_chip_info(&ci);
+            return str_sprintf(
+                "Chip:  ESP32-S3 rev %d.%d, %d kärnor, %u MHz\n"
+                "RAM ledigt:  %.0f kB (lägst %.0f kB)\n"
+                "PSRAM ledigt:  %.1f / %.1f MB\n"
+                "Flash:  %s\n"
+                "NVS:  %u / %u poster\n"
+                "WiFi:  %s  %.0f dBm\n"
+                "IP:  %s\n"
+                "MAC:  %s\n"
+                "Drifttid:  %u h %02u min   Loop: %.0f ms\n"
+                "Omstart:  %s\n"
+                "ESPHome:  %s",
+                ci.revision / 100, ci.revision % 100, ci.cores, (unsigned) (esp_clk_cpu_freq() / 1000000),
+                id(heap_free).state / 1024.0f, id(heap_min_free).state / 1024.0f,
+                id(psram_free).state / 1048576.0f, esp_psram_get_size() / 1048576.0f,
+                id(flash_info).c_str(),
+                (unsigned) nv.used_entries, (unsigned) nv.total_entries,
+                id(wifi_ssid).state.c_str(), id(wifi_rssi).state,
+                id(wifi_ip).state.c_str(), id(wifi_mac).state.c_str(),
+                up / 3600, (up % 3600) / 60, id(loop_time).state,
+                id(reset_reason).state.c_str(),
+                ESPHOME_VERSION);
+      - lvgl.label.update:
+          id: lbl_heard
+          text: !lambda |-
+            if (id(last_stt).empty() || id(last_stt) == "-")
+              return std::string("Inget än");
+            return id(last_stt);
+      - lvgl.label.update:
+          id: lbl_hw
+          text: !lambda |-
+            auto now = id(rtc_time).now();
+            std::string clock = now.is_valid() ? now.strftime("%Y-%m-%d %H:%M:%S") : std::string("ej satt");
+            return str_sprintf(
+                "Batteri:  %.2f V  %.0f%%\n"
+                "Laddning:  %s\n"
+                "USB:  %s  %.2f V   System: %.2f V\n"
+                "Temp:  chip %.1f  PMIC %.1f  IMU %.1f °C\n"
+                "Lutning:  pitch %.0f°  roll %.0f°\n"
+                "Accel:  %.2f  %.2f  %.2f g\n"
+                "Gyro:  %.1f  %.1f  %.1f °/s\n"
+                "RTC-klocka:  %s\n"
+                "Kretsar:  AXP2101 ström, ES7210 mik,\n"
+                "ES8311 högtalare, CST9220 touch,\n"
+                "QMI8658 IMU, PCF85063 RTC, CO5300 skärm",
+                id(batt_voltage).state, id(batt_level).state,
+                id(charge_state).state.c_str(),
+                id(usb_connected).state ? "ansluten" : "ej ansluten", id(usb_voltage).state, id(sys_voltage).state,
+                id(chip_temp).state, id(pmic_temp).state, id(imu_temp).state,
+                id(imu_pitch).state, id(imu_roll).state,
+                id(acc_x).state, id(acc_y).state, id(acc_z).state,
+                id(gyr_x).state, id(gyr_y).state, id(gyr_z).state,
+                clock.c_str());
+
+debug:
+  update_interval: 10s
+
+sensor:
+  - platform: wifi_signal
+    id: wifi_rssi
+    name: "WiFi Signal"
+    update_interval: 10s
+  - platform: uptime
+    id: uptime_s
+    name: "Uptime"
+    update_interval: 10s
+  - platform: internal_temperature
+    id: chip_temp
+    name: "Chip Temperature"
+    update_interval: 10s
+  - platform: debug
+    free:
+      id: heap_free
+      name: "Heap Free"
+    min_free:
+      id: heap_min_free
+      name: "Heap Min Free"
+    psram:
+      id: psram_free
+      name: "PSRAM Free"
+    loop_time:
+      id: loop_time
+      name: "Loop Time"
+  - platform: motion
+    motion_id: imu
+    type: pitch
+    id: imu_pitch
+    name: "Tilt Pitch"
+  - platform: motion
+    motion_id: imu
+    type: roll
+    id: imu_roll
+    name: "Tilt Roll"
+  - platform: motion
+    motion_id: imu
+    type: acceleration_x
+    id: acc_x
+    internal: true
+  - platform: motion
+    motion_id: imu
+    type: acceleration_y
+    id: acc_y
+    internal: true
+  - platform: motion
+    motion_id: imu
+    type: acceleration_z
+    id: acc_z
+    internal: true
+  - platform: motion
+    motion_id: imu
+    type: gyroscope_x
+    id: gyr_x
+    internal: true
+  - platform: motion
+    motion_id: imu
+    type: gyroscope_y
+    id: gyr_y
+    internal: true
+  - platform: motion
+    motion_id: imu
+    type: gyroscope_z
+    id: gyr_z
+    internal: true
+  - platform: qmi8658
+    qmi8658_id: imu
+    id: imu_temp
+    name: "IMU Temperature"
+
+motion:
+  - platform: qmi8658
+    id: imu
+    i2c_id: bus_a
+    address: 0x6B
+    update_interval: 1s
+    accelerometer_range: 2G
+    accelerometer_odr: 31_25HZ
+    gyroscope_range: 256DPS
+    gyroscope_odr: 31_25HZ
+
+time:
+  - platform: pcf85063
+    id: rtc_time
+    i2c_id: bus_a
+    update_interval: never
+  - platform: homeassistant
+    id: ha_time
+    on_time_sync:
+      - pcf85063.write_time:
+          id: rtc_time
+
+interval:
+  - interval: 100ms
+    then:
+      - if:
+          condition:
+            lambda: return id(screen_on);
+          then:
+            - lambda: |-
+                static uint32_t t = 0, next_blink = 30;
+                static int blink = 0;
+                static uint32_t last_col = 0xFFFFFFFF;
+                static bool mouth_shown = false;
+                t++;
+                int mode = id(face_mode);
+                uint32_t col;
+                int ew = 26, eh = 46, ex = 40, ey = 5, dx = 0, dy = 0;
+                int mw = 0;
+                switch (mode) {
+                  case 0: col = 0x1FC8D8; break;
+                  case 1: col = 0x3FE8FF; ew = 30; eh = 56; break;
+                  case 2: col = 0xFFB020; eh = 38; dy = -8; dx = (int) (14 * sinf(t * 0.15f)); break;
+                  case 3: col = 0x40F090; eh = 40; dy = -6; mw = 24 + (int) (esp_random() % 50); break;
+                  case 4: col = 0xFF4A4A; ew = 34; eh = 12; break;
+                  default: col = 0x5A6470; ew = 30; eh = 8; break;
+                }
+                if (mode == 0 || mode == 1 || mode == 3) {
+                  if (blink > 0) {
+                    eh = 8;
+                    blink--;
+                  } else if (t >= next_blink) {
+                    blink = 2;
+                    next_blink = t + 30 + esp_random() % 40;
+                  }
+                }
+                lv_obj_t *eyes[2] = {id(eye_l), id(eye_r)};
+                for (int i = 0; i < 2; i++) {
+                  lv_obj_set_size(eyes[i], ew, eh);
+                  lv_obj_align(eyes[i], LV_ALIGN_CENTER, (i == 0 ? -ex : ex) + dx, ey + dy);
+                  lv_obj_set_style_radius(eyes[i], (ew < eh ? ew : eh) / 2, 0);
+                }
+                if (mw > 0) {
+                  lv_obj_set_width(id(mouth), mw);
+                  lv_obj_align(id(mouth), LV_ALIGN_CENTER, 0, 50);
+                  if (!mouth_shown) {
+                    lv_obj_clear_flag(id(mouth), LV_OBJ_FLAG_HIDDEN);
+                    mouth_shown = true;
+                  }
+                } else if (mouth_shown) {
+                  lv_obj_add_flag(id(mouth), LV_OBJ_FLAG_HIDDEN);
+                  mouth_shown = false;
+                }
+                if (col != last_col) {
+                  lv_color_t c = lv_color_hex(col);
+                  lv_obj_t *fills[6] = {id(eye_l), id(eye_r), id(mouth), id(antenna), id(ear_l), id(ear_r)};
+                  for (auto *o : fills)
+                    lv_obj_set_style_bg_color(o, c, 0);
+                  lv_obj_set_style_border_color(id(head), c, 0);
+                  last_col = col;
+                }
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: return id(screen_on);
+          then:
+            - script.execute: refresh_labels
+
+switch:
+  - platform: gpio
+    id: speaker_amp
+    pin: GPIO46
+    restore_mode: ALWAYS_ON
+    internal: true
+
+audio_adc:
+  - platform: es7210
+    id: adc_mic
+    i2c_id: bus_a
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    mic_gain: 30db
+
+audio_dac:
+  - platform: es8311
+    id: dac_spk
+    i2c_id: bus_a
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    use_mclk: true
+
+i2s_audio:
+  - id: i2s_bus
+    i2s_lrclk_pin: GPIO45
+    i2s_bclk_pin: GPIO9
+    i2s_mclk_pin: GPIO42
+
+microphone:
+  - platform: i2s_audio
+    id: i2s_mics
+    i2s_audio_id: i2s_bus
+    i2s_din_pin: GPIO10
+    adc_type: external
+    pdm: false
+    i2s_mode: primary
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    channel: left
+
+speaker:
+  - platform: i2s_audio
+    id: i2s_spk
+    i2s_audio_id: i2s_bus
+    i2s_dout_pin: GPIO8
+    dac_type: external
+    i2s_mode: primary
+    audio_dac: dac_spk
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    channel: mono
+    buffer_duration: 100ms
+
+  - platform: resampler
+    id: spk_res
+    output_speaker: i2s_spk
+
+media_player:
+  - platform: speaker
+    id: va_media_player
+    name: "Speaker"
+    volume_max: 81%
+    volume_initial: 100%
+    on_volume:
+      - script.execute: update_vol_ui
+    on_mute:
+      - script.execute: update_vol_ui
+    on_unmute:
+      - script.execute: update_vol_ui
+    announcement_pipeline:
+      speaker: spk_res
+      format: NONE
+    files:
+      - id: snd_low_battery
+        file: sounds/low_battery_sv.wav
+      - id: snd_pct_20
+        file: sounds/pct_20_sv.wav
+      - id: snd_pct_15
+        file: sounds/pct_15_sv.wav
+      - id: snd_pct_10
+        file: sounds/pct_10_sv.wav
+      - id: snd_pct_5
+        file: sounds/pct_5_sv.wav
+      - id: snd_connect_charger
+        file: sounds/connect_charger_sv.wav
+      - id: snd_test_volume
+        file: sounds/test_volume_sv.wav
+
+rtttl:
+  id: tone_player
+  speaker: i2s_spk
+
+button:
+  - platform: restart
+    name: "Restart"
+  - platform: template
+    name: "Test Low Battery Warning"
+    entity_category: diagnostic
+    on_press:
+      - if:
+          condition:
+            lambda: return id(warn_volume) > 0.0f;
+          then:
+            - script.execute:
+                id: low_battery_warn
+                level: 20
+  - platform: template
+    name: "Test Speaker"
+    on_press:
+      - rtttl.play: "beep:d=8,o=6,b=180:c,e,g,c7,g,e,c"
+
+micro_wake_word:
+  id: mww
+  microphone:
+    microphone: i2s_mics
+    channels: 0
+  models:
+    - model: okay_nabu
+  on_wake_word_detected:
+    - logger.log: "Wake word detected"
+    - script.execute: screen_wake
+    - if:
+        condition:
+          not:
+            voice_assistant.is_running:
+        then:
+          - voice_assistant.start:
+              wake_word: !lambda return wake_word;
+
+voice_assistant:
+  id: va
+  microphone:
+    microphone: i2s_mics
+    channels: 0
+  media_player: va_media_player
+  noise_suppression_level: 0
+  auto_gain: 0 dbfs
+  volume_multiplier: 1.0
+  on_client_connected:
+    - lambda: |-
+        id(va_state) = "Redo - säg Okay Nabu";
+        id(face_mode) = 0;
+    - micro_wake_word.start:
+  on_client_disconnected:
+    - lambda: |-
+        id(va_state) = "Ingen Home Assistant";
+        id(face_mode) = 5;
+    - voice_assistant.stop:
+    - micro_wake_word.stop:
+  on_start:
+    - micro_wake_word.stop:
+    - lambda: |-
+        id(va_state) = "Startar...";
+        id(face_mode) = 1;
+  on_listening:
+    - lambda: |-
+        id(va_state) = "Lyssnar...";
+        id(face_mode) = 1;
+  on_stt_vad_end:
+    - lambda: |-
+        id(va_state) = "Tänker...";
+        id(face_mode) = 2;
+  on_tts_start:
+    - lambda: |-
+        id(va_state) = "Svarar...";
+        id(face_mode) = 3;
+  on_stt_end:
+    - lambda: id(last_stt) = x;
+    - logger.log:
+        format: "STT heard: %s"
+        args: ['x.c_str()']
+  on_tts_end:
+    - logger.log:
+        format: "TTS URL: %s"
+        args: ['x.c_str()']
+  on_intent_progress:
+    - logger.log:
+        format: "Intent progress URL: %s"
+        args: ['x.c_str()']
+  on_error:
+    - lambda: |-
+        id(va_state) = std::string("Fel ") + code;
+        id(face_mode) = 4;
+  on_end:
+    - wait_until:
+        not:
+          voice_assistant.is_running:
+    - if:
+        condition:
+          lambda: return id(face_mode) == 4;
+        then:
+          - delay: 2s
+    - wait_until:
+        condition:
+          not:
+            media_player.is_announcing: va_media_player
+        timeout: 30s
+    - lambda: |-
+        id(va_state) = "Redo - säg Okay Nabu";
+        id(face_mode) = 0;
+    - micro_wake_word.start:
+    - script.execute: screen_wake
+
+touchscreen:
+  - platform: cst9220
+    id: touch
+    i2c_id: bus_a
+    display: main_display
+    interrupt_pin: GPIO11
+    reset_pin: GPIO40
+    on_touch:
+      - script.execute: screen_wake
+
+font:
+  - file: "gfonts://Roboto"
+    id: font_big
+    size: 44
+    glyphsets: [GF_Latin_Core]
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 28
+    glyphsets: [GF_Latin_Core]
+  - file: "gfonts://Roboto"
+    id: font_tiny
+    size: 22
+    glyphsets: [GF_Latin_Core]
+
+spi:
+  - id: display_spi
+    type: quad
+    clk_pin: GPIO38
+    data_pins: [GPIO4, GPIO5, GPIO6, GPIO7]
+
+display:
+  - platform: mipi_spi
+    id: main_display
+    model: WAVESHARE-ESP32-S3-TOUCH-AMOLED-2.16
+    spi_id: display_spi
+    auto_clear_enabled: false
+    update_interval: never
+
+lvgl:
+  displays: [main_display]
+  touchscreens: [touch]
+  buffer_size: 25%
+  page_wrap: true
+  style_definitions:
+    - id: page_style
+      bg_color: 0x000000
+      bg_opa: COVER
+      border_width: 0
+      pad_all: 0
+    - id: robot_fill
+      bg_color: 0x1FC8D8
+      bg_opa: COVER
+      border_width: 0
+      align: CENTER
+    - id: dot_on
+      width: 12
+      height: 12
+      radius: 6
+      bg_color: 0x00C8FF
+      bg_opa: COVER
+      border_width: 0
+    - id: dot_off
+      width: 12
+      height: 12
+      radius: 6
+      bg_color: 0x404040
+      bg_opa: COVER
+      border_width: 0
+  top_layer:
+    widgets:
+      - obj:
+          id: blackout
+          width: 100%
+          height: 100%
+          bg_color: 0x000000
+          bg_opa: COVER
+          border_width: 0
+          radius: 0
+          hidden: true
+  pages:
+    - id: page_face
+      styles: page_style
+      scrollable: false
+      on_swipe_left:
+        - lvgl.page.next:
+            animation: MOVE_LEFT
+            time: 300ms
+      on_swipe_right:
+        - lvgl.page.previous:
+            animation: MOVE_RIGHT
+            time: 300ms
+      widgets:
+        - obj:
+            id: face
+            width: 480
+            height: 480
+            align: CENTER
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+            clickable: false
+            scrollable: false
+            widgets:
+              - obj:
+                  id: antenna
+                  styles: robot_fill
+                  width: 14
+                  height: 30
+                  radius: 7
+                  y: -82
+                  clickable: false
+                  scrollable: false
+              - obj:
+                  id: ear_l
+                  styles: robot_fill
+                  width: 18
+                  height: 50
+                  radius: 9
+                  x: -111
+                  y: 10
+                  clickable: false
+                  scrollable: false
+              - obj:
+                  id: ear_r
+                  styles: robot_fill
+                  width: 18
+                  height: 50
+                  radius: 9
+                  x: 111
+                  y: 10
+                  clickable: false
+                  scrollable: false
+              - obj:
+                  id: head
+                  width: 210
+                  height: 160
+                  radius: 48
+                  align: CENTER
+                  y: 10
+                  bg_opa: TRANSP
+                  border_width: 10
+                  border_color: 0x1FC8D8
+                  clickable: false
+                  scrollable: false
+              - obj:
+                  id: eye_l
+                  styles: robot_fill
+                  width: 26
+                  height: 46
+                  radius: 13
+                  x: -40
+                  y: 5
+                  clickable: false
+                  scrollable: false
+              - obj:
+                  id: eye_r
+                  styles: robot_fill
+                  width: 26
+                  height: 46
+                  radius: 13
+                  x: 40
+                  y: 5
+                  clickable: false
+                  scrollable: false
+              - obj:
+                  id: mouth
+                  styles: robot_fill
+                  width: 50
+                  height: 10
+                  radius: 5
+                  y: 50
+                  hidden: true
+                  clickable: false
+                  scrollable: false
+        - obj:
+            styles: dot_on
+            clickable: false
+            align: BOTTOM_MID
+            x: -36
+            y: -24
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: -12
+            y: -24
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: 12
+            y: -24
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: 36
+            y: -24
+    - id: page_status
+      styles: page_style
+      scrollable: false
+      on_swipe_left:
+        - lvgl.page.next:
+            animation: MOVE_LEFT
+            time: 300ms
+      on_swipe_right:
+        - lvgl.page.previous:
+            animation: MOVE_RIGHT
+            time: 300ms
+      widgets:
+        - label:
+            align: CENTER
+            y: -90
+            text: "Voice Satellite"
+            text_font: font_big
+            text_color: 0x00C8FF
+        - label:
+            id: lbl_state
+            align: CENTER
+            y: -20
+            text: "Startar"
+            text_font: font_small
+            text_color: 0xFFFFFF
+        - label:
+            id: lbl_ip
+            align: CENTER
+            y: 25
+            text: ""
+            text_font: font_small
+            text_color: 0x969696
+        - label:
+            id: lbl_batt
+            align: CENTER
+            y: 85
+            text: ""
+            text_font: font_small
+            text_color: 0x78FF78
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: -36
+            y: -24
+        - obj:
+            styles: dot_on
+            clickable: false
+            align: BOTTOM_MID
+            x: -12
+            y: -24
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: 12
+            y: -24
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: 36
+            y: -24
+    - id: page_stats
+      styles: page_style
+      scrollable: false
+      on_swipe_left:
+        - lvgl.page.next:
+            animation: MOVE_LEFT
+            time: 300ms
+      on_swipe_right:
+        - lvgl.page.previous:
+            animation: MOVE_RIGHT
+            time: 300ms
+      widgets:
+        - obj:
+            id: stats_scroll
+            width: 100%
+            height: 100%
+            bg_opa: TRANSP
+            border_width: 0
+            radius: 0
+            pad_top: 36
+            pad_bottom: 70
+            pad_left: 0
+            pad_right: 0
+            scrollable: true
+            scroll_dir: VER
+            scrollbar_mode: ACTIVE
+            layout:
+              type: flex
+              flex_flow: COLUMN
+              flex_align_cross: CENTER
+              pad_row: 12
+            widgets:
+              - label:
+                  text: "Senast hört"
+                  text_font: font_small
+                  text_color: 0x00C8FF
+              - label:
+                  id: lbl_heard
+                  width: 430
+                  text: ""
+                  text_font: font_tiny
+                  text_color: 0xFFFFFF
+                  text_align: CENTER
+              - label:
+                  text: "System"
+                  text_font: font_small
+                  text_color: 0x00C8FF
+              - label:
+                  id: lbl_stats
+                  width: 430
+                  text: ""
+                  text_font: font_tiny
+                  text_color: 0xDDDDDD
+                  text_line_space: 6
+              - label:
+                  text: "Sensorer"
+                  text_font: font_small
+                  text_color: 0x00C8FF
+              - label:
+                  id: lbl_hw
+                  width: 430
+                  text: ""
+                  text_font: font_tiny
+                  text_color: 0xDDDDDD
+                  text_line_space: 6
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: -36
+            y: -24
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: -12
+            y: -24
+        - obj:
+            styles: dot_on
+            clickable: false
+            align: BOTTOM_MID
+            x: 12
+            y: -24
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: 36
+            y: -24
+    - id: page_volume
+      styles: page_style
+      scrollable: false
+      on_swipe_left:
+        - lvgl.page.next:
+            animation: MOVE_LEFT
+            time: 300ms
+      on_swipe_right:
+        - lvgl.page.previous:
+            animation: MOVE_RIGHT
+            time: 300ms
+      widgets:
+        - label:
+            align: TOP_MID
+            y: 30
+            text: "Volym"
+            text_font: font_small
+            text_color: 0x00C8FF
+        - label:
+            align: CENTER
+            x: -80
+            y: -85
+            text: "Assistent"
+            text_font: font_small
+            text_color: 0x00C8FF
+        - label:
+            id: lbl_assist_val
+            align: CENTER
+            x: 110
+            y: -85
+            text: ""
+            text_font: font_small
+            text_color: 0xFFFFFF
+        - slider:
+            id: sl_assist
+            align: CENTER
+            y: -45
+            width: 340
+            height: 18
+            min_value: 0
+            max_value: 5
+            value: 5
+            gesture_bubble: false
+            bg_color: 0x303840
+            bg_opa: COVER
+            radius: 9
+            indicator:
+              bg_color: 0x00C8FF
+              radius: 9
+            knob:
+              bg_color: 0xFFFFFF
+              pad_all: 10
+            on_value:
+              - lvgl.label.update:
+                  id: lbl_assist_val
+                  text: !lambda |-
+                    int p = (int) x;
+                    return p == 0 ? std::string("OFF") : str_sprintf("%d %%", 75 + p * 5);
+            on_release:
+              - if:
+                  condition:
+                    lambda: return lv_slider_get_value(id(sl_assist)) == 0;
+                  then:
+                    - media_player.mute: va_media_player
+                  else:
+                    - media_player.unmute: va_media_player
+                    - media_player.volume_set:
+                        id: va_media_player
+                        volume: !lambda return 0.75f + lv_slider_get_value(id(sl_assist)) * 0.05f;
+        - label:
+            align: CENTER
+            x: -80
+            y: 30
+            text: "Varningar"
+            text_font: font_small
+            text_color: 0xFFB020
+        - label:
+            id: lbl_warn_val
+            align: CENTER
+            x: 110
+            y: 30
+            text: ""
+            text_font: font_small
+            text_color: 0xFFFFFF
+        - slider:
+            id: sl_warn
+            align: CENTER
+            y: 70
+            width: 340
+            height: 18
+            min_value: 0
+            max_value: 5
+            value: 5
+            gesture_bubble: false
+            bg_color: 0x303840
+            bg_opa: COVER
+            radius: 9
+            indicator:
+              bg_color: 0xFFB020
+              radius: 9
+            knob:
+              bg_color: 0xFFFFFF
+              pad_all: 10
+            on_value:
+              - lvgl.label.update:
+                  id: lbl_warn_val
+                  text: !lambda |-
+                    int p = (int) x;
+                    return p == 0 ? std::string("OFF") : str_sprintf("%d %%", 75 + p * 5);
+            on_release:
+              - lambda: |-
+                  int p = lv_slider_get_value(id(sl_warn));
+                  id(warn_volume) = p == 0 ? 0.0f : 0.75f + p * 0.05f;
+        - button:
+            id: btn_test_sound
+            align: CENTER
+            x: -100
+            y: 150
+            width: 190
+            height: 56
+            radius: 28
+            bg_color: 0x00C8FF
+            bg_opa: COVER
+            on_click:
+              - script.execute: play_test_phrase
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Testa ljud"
+                  text_font: font_small
+                  text_color: 0x000000
+        - button:
+            id: btn_test_warn
+            align: CENTER
+            x: 100
+            y: 150
+            width: 190
+            height: 56
+            radius: 28
+            bg_color: 0xFFB020
+            bg_opa: COVER
+            on_click:
+              - if:
+                  condition:
+                    lambda: return id(warn_volume) > 0.0f;
+                  then:
+                    - script.execute:
+                        id: low_battery_warn
+                        level: 20
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Testa varning"
+                  text_font: font_small
+                  text_color: 0x000000
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: -36
+            y: -24
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: -12
+            y: -24
+        - obj:
+            styles: dot_off
+            clickable: false
+            align: BOTTOM_MID
+            x: 12
+            y: -24
+        - obj:
+            styles: dot_on
+            clickable: false
+            align: BOTTOM_MID
+            x: 36
+            y: -24
