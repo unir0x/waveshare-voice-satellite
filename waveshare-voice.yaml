@@ -1,6 +1,6 @@
 substitutions:
   # Project version (semver). Bump it and add a CHANGELOG.md entry for every release; tag the commit vX.Y.Z.
-  version: "0.9.2"
+  version: "0.9.3"
   device_name: "waveshare-voice-satellite"
   friendly_name: "Waveshare Voice Satellite"
 
@@ -530,6 +530,28 @@ time:
           id: rtc_time
 
 interval:
+  # Amplifier gating: the codec pops when the I2S speaker starts and when it stops (500 ms after its last sample).
+  # Switch the amp on 30 ms after the speaker started (the clips have 200 ms leading silence) and off 150 ms after
+  # the last sample, so it is off at both pops.
+  - interval: 20ms
+    then:
+      - lambda: |-
+          static bool was_running = false;
+          static uint32_t started = 0, last_audio = 0;
+          uint32_t now = millis();
+          bool running = id(i2s_spk).is_running();
+          if (running && !was_running)
+            started = last_audio = now;
+          if (running && id(i2s_spk).has_buffered_data())
+            last_audio = now;
+          was_running = running;
+          bool want = running && now - started >= 30 && now - last_audio < 150;
+          if (want != id(speaker_amp).state) {
+            if (want)
+              id(speaker_amp).turn_on();
+            else
+              id(speaker_amp).turn_off();
+          }
   - interval: 100ms
     then:
       - if:
@@ -617,7 +639,7 @@ switch:
   - platform: gpio
     id: speaker_amp
     pin: GPIO46
-    restore_mode: ALWAYS_ON
+    restore_mode: ALWAYS_OFF
     internal: true
 
 audio_adc:

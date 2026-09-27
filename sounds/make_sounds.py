@@ -25,10 +25,11 @@ PHRASES = {
     "pct_10": "10 procent.",
     "pct_5": "5 procent.",
     "connect_charger": "Anslut laddaren.",
-    "test_volume": "Hej! Så här låter jag på den här volymen.",
+    "test_volume": "Så här låter jag på den här volymen.",
 }
 THRESHOLD = 300
 PAD_S = 0.05
+LEAD_S = 0.2  # leading silence: the speaker amp switches on ~30 ms after playback starts
 PEAK_DBFS = -5.0  # full-scale clips crackled on the device; -3 dBFS still crackled
 COMPRESSION = 0.8  # power-law compression: raises quiet speech without raising peaks
 
@@ -89,7 +90,8 @@ def resample(x: np.ndarray, src: int, dst: int, half_taps: int = 48) -> np.ndarr
 def trim(samples: np.ndarray, rate: int) -> np.ndarray:
     loud = np.nonzero(np.abs(samples) > THRESHOLD)[0]
     pad = int(rate * PAD_S)
-    return samples[max(0, loud[0] - pad):min(len(samples), loud[-1] + pad)]
+    trimmed = samples[max(0, loud[0] - pad):min(len(samples), loud[-1] + pad)]
+    return np.concatenate([np.zeros(int(rate * (LEAD_S - PAD_S))), trimmed])
 
 
 synth = synth_sapi if ENGINE == "sapi" else synth_piper

@@ -6,8 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-09-27
+
 ### Changed
 - Every change is now logged here as soon as it is made; the section becomes a version entry on release.
+
+### Fixed
+- Clicks before and after speech: the speaker amplifier (GPIO46) is now only on while audio plays. It switches on
+  30 ms after the I2S speaker has started and off 150 ms after the last sample, before the speaker stops (500 ms),
+  so it is off during both codec pops. The built-in clips got 200 ms leading silence so no word is cut.
+- Volume test phrase is now "Så här låter jag på den här volymen." (dropped the "Hej!" that got clipped).
 
 ## [0.9.2] - 2026-09-27
 
@@ -46,7 +54,8 @@ First versioned release. Core features work; not yet proven in long-term daily u
 - A small click may remain at the end of a warning.
 - Power draw about 150-250 mA; battery lasts hours.
 
-[Unreleased]: https://github.com/unir0x/waveshare-voice-satellite/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/unir0x/waveshare-voice-satellite/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.3
 [0.9.2]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.2
 [0.9.1]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.1
 [0.9.0]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.0
