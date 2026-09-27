@@ -1,6 +1,6 @@
 substitutions:
   # Project version (semver). Bump it and add a CHANGELOG.md entry for every release; tag the commit vX.Y.Z.
-  version: "0.11.0"
+  version: "0.12.0"
   device_name: "waveshare-voice-satellite"
   friendly_name: "Waveshare Voice Satellite"
 
@@ -17,6 +17,12 @@ esphome:
     priority: -100
     then:
       - script.execute: update_vol_ui
+      - lambda: |-
+          if (id(charge_limit).active_index().value_or(1) < 2)
+            lv_obj_add_state(id(sw_charge), LV_STATE_CHECKED);
+          else
+            lv_obj_clear_state(id(sw_charge), LV_STATE_CHECKED);
+      - script.execute: apply_charge_control
       - pcf85063.read_time:
           id: rtc_time
       - lambda: |-
@@ -114,6 +120,7 @@ axp2101_lite:
     id: batt_level
     name: "Battery Level"
     on_value:
+      - script.execute: apply_charge_control
       - lambda: |-
           if (x >= 25 || id(batt_charging).state || id(usb_connected).state) {
             id(batt_warn_level) = 100;
@@ -159,6 +166,30 @@ axp2101_lite:
     id: charge_state
     name: "Charge State"
 
+select:
+  # Battery charge limit (AXP2101 charge target voltage). Lower = longer battery life when mostly on USB.
+  - platform: template
+    id: charge_limit
+    name: "Charge Limit"
+    icon: mdi:battery-charging-80
+    options:
+      - "4.0 V (~70 %)"
+      - "4.1 V (~85-90 %)"
+      - "4.2 V (100 %)"
+    initial_option: "4.1 V (~85-90 %)"
+    optimistic: true
+    restore_value: true
+    on_value:
+      - lambda: |-
+          if (i < 2) {
+            // switching charge control on: only charge now if the battery is already low
+            id(charge_paused) = !(id(batt_level).state <= 30);
+            lv_obj_add_state(id(sw_charge), LV_STATE_CHECKED);
+          } else {
+            lv_obj_clear_state(id(sw_charge), LV_STATE_CHECKED);
+          }
+      - script.execute: apply_charge_control
+
 text_sensor:
   - platform: wifi_info
     ip_address:
@@ -193,6 +224,10 @@ globals:
   - id: batt_warn_level
     type: int
     initial_value: "100"
+  - id: charge_paused
+    type: bool
+    restore_value: true
+    initial_value: "true"
   - id: warn_was_muted
     type: bool
     initial_value: "false"
@@ -389,6 +424,26 @@ script:
           id(face_mode) = 0;
           id(va_state) = "Redo - säg Okay Nabu";
 
+  # Charge control (when the charge limit is 4.0/4.1 V): pause charging once full, resume only at <= 30 %.
+  # With USB connected the device runs from USB, so a paused battery simply keeps its level.
+  - id: apply_charge_control
+    then:
+      - lambda: |-
+          int i = id(charge_limit).active_index().value_or(1);
+          id(pmic).set_charge_voltage(4000 + i * 100);
+          if (i >= 2) {
+            id(pmic).set_charging_enabled(true);
+            return;
+          }
+          float lvl = id(batt_level).state;
+          if (!std::isnan(lvl)) {
+            if (lvl <= 30)
+              id(charge_paused) = false;
+            else if (lvl >= 90 || id(charge_state).state == "Fulladdad")
+              id(charge_paused) = true;
+          }
+          id(pmic).set_charging_enabled(!id(charge_paused));
+
   - id: refresh_labels
     then:
       - lvgl.label.update:
@@ -455,6 +510,7 @@ script:
                 "Lutning:  pitch %.0f°  roll %.0f°\n"
                 "Accel:  %.2f  %.2f  %.2f g\n"
                 "Gyro:  %.1f  %.1f  %.1f °/s\n"
+                "Laddstyrning:  %s\n"
                 "RTC-klocka:  %s\n"
                 "Kretsar:  AXP2101 ström, ES7210 mik,\n"
                 "ES8311 högtalare, CST9220 touch,\n"
@@ -466,6 +522,9 @@ script:
                 id(imu_pitch).state, id(imu_roll).state,
                 id(acc_x).state, id(acc_y).state, id(acc_z).state,
                 id(gyr_x).state, id(gyr_y).state, id(gyr_z).state,
+                id(charge_limit).active_index().value_or(1) >= 2 ? "av (laddar till 100 %)"
+                    : str_sprintf("30-90 %%, gräns %.2f V, %s", id(pmic).get_charge_voltage() / 1000.0f,
+                                  id(pmic).is_charging_enabled() ? "laddning på" : "pausad").c_str(),
                 clock.c_str());
 
 debug:
@@ -502,11 +561,15 @@ sensor:
     type: pitch
     id: imu_pitch
     name: "Tilt Pitch"
+    filters:
+      - throttle: 5s
   - platform: motion
     motion_id: imu
     type: roll
     id: imu_roll
     name: "Tilt Roll"
+    filters:
+      - throttle: 5s
   - platform: motion
     motion_id: imu
     type: acceleration_x
@@ -541,13 +604,15 @@ sensor:
     qmi8658_id: imu
     id: imu_temp
     name: "IMU Temperature"
+    filters:
+      - throttle: 30s
 
 motion:
   - platform: qmi8658
     id: imu
     i2c_id: bus_a
     address: 0x6B
-    update_interval: 1s
+    update_interval: 200ms
     accelerometer_range: 2G
     accelerometer_odr: 31_25HZ
     gyroscope_range: 256DPS
@@ -565,6 +630,25 @@ time:
           id: rtc_time
 
 interval:
+  # Wake the screen when the device is picked up: clear rotation or a change in acceleration between IMU samples.
+  - interval: 200ms
+    then:
+      - lambda: |-
+          static float px = NAN, py = NAN, pz = NAN;
+          float ax = id(acc_x).state, ay = id(acc_y).state, az = id(acc_z).state;
+          float gx = id(gyr_x).state, gy = id(gyr_y).state, gz = id(gyr_z).state;
+          if (std::isnan(ax) || std::isnan(gx))
+            return;
+          float d = std::isnan(px) ? 0.0f : std::sqrt((ax - px) * (ax - px) + (ay - py) * (ay - py) + (az - pz) * (az - pz));
+          float g = std::sqrt(gx * gx + gy * gy + gz * gz);
+          px = ax;
+          py = ay;
+          pz = az;
+          if (d > 0.2f || g > 40.0f) {
+            if (!id(screen_on))
+              ESP_LOGI("lift", "Lift detected (dAcc %.2f g, gyro %.0f dps), waking screen", d, g);
+            id(screen_wake).execute();
+          }
   # Power save schedule (windows in schedule.h, battery only): WiFi modem sleep while idle and listening for the
   # wake word. Full power as soon as the assistant or the speaker is busy (also forced on wake word/playback).
   # ESPHome re-applies power_save_mode none on reconnect, so compare with the actual mode every 5 s.
@@ -1316,14 +1400,14 @@ lvgl:
       widgets:
         - label:
             align: TOP_MID
-            y: 30
-            text: "Volym"
+            y: 24
+            text: "Inställningar"
             text_font: font_small
             text_color: 0x00C8FF
         - label:
             align: CENTER
             x: -80
-            y: -85
+            y: -120
             text: "Assistent"
             text_font: font_small
             text_color: 0x00C8FF
@@ -1331,14 +1415,14 @@ lvgl:
             id: lbl_assist_val
             align: CENTER
             x: 110
-            y: -85
+            y: -120
             text: ""
             text_font: font_small
             text_color: 0xFFFFFF
         - slider:
             id: sl_assist
             align: CENTER
-            y: -45
+            y: -85
             width: 340
             height: 18
             min_value: 0
@@ -1374,7 +1458,7 @@ lvgl:
         - label:
             align: CENTER
             x: -80
-            y: 30
+            y: -35
             text: "Varningar"
             text_font: font_small
             text_color: 0xFFB020
@@ -1382,14 +1466,14 @@ lvgl:
             id: lbl_warn_val
             align: CENTER
             x: 110
-            y: 30
+            y: -35
             text: ""
             text_font: font_small
             text_color: 0xFFFFFF
         - slider:
             id: sl_warn
             align: CENTER
-            y: 70
+            y: 0
             width: 340
             height: 18
             min_value: 0
@@ -1415,13 +1499,39 @@ lvgl:
               - lambda: |-
                   int p = lv_slider_get_value(id(sl_warn));
                   id(warn_volume) = p == 0 ? 0.0f : 0.75f + p * 0.05f;
+        - label:
+            align: CENTER
+            x: -50
+            y: 60
+            text: "Laddning 30-90 %"
+            text_font: font_small
+            text_color: 0x78FF78
+        - switch:
+            id: sw_charge
+            align: CENTER
+            x: 150
+            y: 60
+            width: 70
+            height: 36
+            gesture_bubble: false
+            bg_color: 0x303840
+            indicator:
+              checked:
+                bg_color: 0x40C060
+            knob:
+              bg_color: 0xFFFFFF
+            on_value:
+              - select.set:
+                  id: charge_limit
+                  option: !lambda |-
+                    return x ? std::string("4.1 V (~85-90 %)") : std::string("4.2 V (100 %)");
         - button:
             id: btn_test_sound
             align: CENTER
             x: -100
-            y: 150
+            y: 135
             width: 190
-            height: 56
+            height: 52
             radius: 28
             bg_color: 0x00C8FF
             bg_opa: COVER
@@ -1437,9 +1547,9 @@ lvgl:
             id: btn_test_warn
             align: CENTER
             x: 100
-            y: 150
+            y: 135
             width: 190
-            height: 56
+            height: 52
             radius: 28
             bg_color: 0xFFB020
             bg_opa: COVER

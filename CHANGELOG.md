@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-27
+
+### Added
+- MIT license (`LICENSE`) and a "Requirements" section in the README describing what else is needed to build
+  and use the project.
+- Wake on lift: the screen turns on when the device is picked up (IMU rotation > 40 dps or acceleration change
+  > 0.2 g between samples). The IMU is now read every 200 ms; tilt and IMU temperature are still sent to Home
+  Assistant at most every 5 s / 30 s.
+- `tools/measure_power.py`: compares battery drain with and without WiFi power save (settle, then alternating
+  normal/power-save blocks, CSV log, mV per hour per block). Measured: about 15.5 %/h normal vs 10.3 %/h with
+  power save (roughly a third less; ~6.5 h vs ~9.5 h from full).
+- Battery charge limit: select "Charge Limit" in Home Assistant (4.0 V ~70 %, 4.1 V ~85-90 % default, 4.2 V 100 %)
+  sets the AXP2101 charge target voltage (reg 0x64), so a mostly plugged-in device does not sit at full charge.
+  Applied at boot; the statistics page shows the value read back from the chip.
+- Charge control window: with the limit active, charging pauses once the battery is full (at the limit) and resumes
+  only when it has dropped to 30 % (AXP2101 charge enable, reg 0x18 bit 1). With USB connected the device runs from
+  USB, so a paused battery keeps its level. The pause state survives reboots.
+- On-device switch "Laddning 30-90 %" on the volume page (renamed "Inställningar"): on = charge control with the
+  4.1 V limit, off = charge to 100 %. It stays in sync with "Charge Limit" in Home Assistant. The page layout was
+  tightened to fit it.
+
 ## [0.11.0] - 2026-09-27
 
 ### Changed
@@ -88,7 +109,8 @@ First versioned release. Core features work; not yet proven in long-term daily u
 - A small click may remain at the end of a warning.
 - Power draw about 150-250 mA; battery lasts hours.
 
-[Unreleased]: https://github.com/unir0x/waveshare-voice-satellite/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/unir0x/waveshare-voice-satellite/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.12.0
 [0.11.0]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.11.0
 [0.10.0]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.10.0
 [0.9.4]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.4

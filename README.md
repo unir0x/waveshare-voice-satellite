@@ -22,8 +22,10 @@ voice satellite with an animated touch UI, battery monitoring and spoken low-bat
   3. **Statistics** (scrollable): last recognized speech, system info (chip, RAM/PSRAM, flash/firmware, NVS,
      WiFi, uptime, reset reason) and sensors (battery, USB/system voltage, temperatures, tilt,
      accelerometer, gyro, RTC time).
-  4. **Volume**: stepped sliders (OFF, 80-100 %) for the assistant and for warnings, with test buttons.
-- **Screen off after 30 s** (burn-in protection and power saving). Wakes on touch or wake word.
+  4. **Settings**: stepped volume sliders (OFF, 80-100 %) for the assistant and for warnings, the battery
+     charge control switch, and test buttons.
+- **Screen off after 30 s** (burn-in protection and power saving). Wakes on touch, wake word or when the
+  device is picked up (IMU).
 - **Low battery warnings** at 20/15/10/5 % ("Lågt batteri. N procent. Anslut laddaren."), stored in the
   firmware so they work without Home Assistant. Separate warning volume, audible even when the assistant is
   muted.
@@ -31,6 +33,8 @@ voice satellite with an animated touch UI, battery monitoring and spoken low-bat
   temperature, tilt, WiFi signal, uptime, free memory, reset reason. The firmware version is shown in the device
   info.
 - **RTC** kept in sync from Home Assistant.
+- **Battery charge control**: with USB always connected, charging pauses at ~85-90 % (4.1 V limit) and resumes only
+  at 30 %, which keeps the battery healthy. Switchable on the device and via "Charge Limit" in Home Assistant.
 - **Power save schedule** on battery (01-06 daily, Mon-Fri 09-15): WiFi modem sleep while idle, wake word still
   active. Night quiet hours 01-06 postpone battery warnings.
 
@@ -48,6 +52,22 @@ voice satellite with an animated touch UI, battery monitoring and spoken low-bat
 | RTC | PCF85063 | I2C 0x51 |
 
 I2C: SDA GPIO15, SCL GPIO14. I2S: MCLK GPIO42, BCLK GPIO9, WS GPIO45, mic in GPIO10, speaker out GPIO8.
+
+## Requirements
+
+- The board: Waveshare ESP32-S3-Touch-AMOLED-2.16 (SKU 33969), a USB-C cable and optionally a LiPo battery.
+- [ESPHome](https://esphome.io) installed on your computer (`pip install esphome`, tested with 2026.9.0). The
+  repository contains everything project specific; ESPHome itself is not included.
+- Internet access for the first build: ESPHome downloads the ESP-IDF toolchain, the "Okay Nabu" wake word model and
+  the Roboto font automatically.
+- Home Assistant with the ESPHome integration and an Assist pipeline (speech-to-text + text-to-speech), reachable
+  from the device via its internal URL.
+- Your own `secrets.yaml` (copy `secrets.example.yaml`). Nothing secret is stored in the repository.
+- Optional, only to regenerate the voice clips: Windows with the Swedish voice "Microsoft Bengt" and PowerShell 7,
+  or Piper with `sv_SE-lisa-medium` (see `sounds/make_sounds.py`).
+
+The on-screen texts and voice clips are Swedish, and the power save schedule (`schedule.h`) reflects the author's
+routine; adjust them to your needs.
 
 ## Setup
 
@@ -81,7 +101,7 @@ I2C: SDA GPIO15, SCL GPIO14. I2S: MCLK GPIO42, BCLK GPIO9, WS GPIO45, mic in GPI
 
 ## Status
 
-Current version: **v0.11.0** (see `CHANGELOG.md`; semantic versioning, every change is logged there and each
+Current version: **v0.12.0** (see `CHANGELOG.md`; semantic versioning, every change is logged there and each
 release is tagged and published on GitHub). The running firmware version is shown in Home Assistant and on the
 statistics page.
 
@@ -91,8 +111,9 @@ UI pages with speaker-synced face, sensors, battery warnings, volume page, click
 1.0.0 is planned once it has run stably in daily use for a while.
 
 Known limitations and ideas:
-- Power draw is roughly 150-250 mA (always-on WiFi and wake word); the battery lasts hours, not days. A power save
-  schedule (WiFi modem sleep at night and on weekday daytime, on battery) reduces it while keeping the wake word.
+- On battery the device lasts hours, not days (always-on WiFi and wake word). Measured: about 15.5 %/h normally
+  (~6.5 h from full) and 10.3 %/h in power save (~9.5 h). The power save schedule (WiFi modem sleep at night and
+  on weekday daytime) applies automatically on battery while keeping the wake word.
   A stronger option, deep sleep in the same windows (no wake word while asleep, wake by touch), is documented in
   `CLAUDE.md` but not enabled.
 - Reply latency with a cloud pipeline (Gemini) is 4-11 s after you stop speaking, almost all of it in the cloud:
@@ -101,7 +122,12 @@ Known limitations and ideas:
   HTTP 500 for time-only replies like "15:50".
 - The wake word is "Okay Nabu". Other words need a different microWakeWord model; custom words (e.g. "Okay Lisa")
   would have to be trained first.
-- Unused so far: IMU for "wake on pick-up", clock page from the RTC, an audio level visualization page (the level
-  is already measured).
+- Ideas: a clock page from the RTC, an audio level visualization page (the level is already measured).
 
 See `CLAUDE.md` for the detailed engineering notes and lessons learned.
+
+## License
+
+MIT, see `LICENSE`. The voice clips in `sounds/` were generated with the Windows voice "Microsoft Bengt"; regenerate
+them with `sounds/make_sounds.py` (Piper) if you need freely licensed audio. Fonts and the wake word model are
+downloaded at build time under their own licenses.

@@ -41,7 +41,8 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
 - Display: CO5300 QSPI, `mipi_spi` model `WAVESHARE-ESP32-S3-TOUCH-AMOLED-2.16`, clk GPIO38, data GPIO4-7.
   Fonts need `glyphsets: [GF_Latin_Core]` for å/ä/ö.
 - Touch: `cst9220`, INT GPIO11, RST GPIO40.
-- IMU: `motion: platform: qmi8658` (2G / 256DPS / 31.25 Hz, polled 1 s). RTC: read at boot, written on every
+- IMU: `motion: platform: qmi8658` (2G / 256DPS / 31.25 Hz, polled every 200 ms for wake-on-lift: rotation
+  > 40 dps or acceleration change > 0.2 g between samples; HA sensors throttled to 5 s / 30 s). RTC: read at boot, written on every
   Home Assistant time sync (stores UTC).
 - Flash: bootloader + table, otadata, phy_init, app0 7.75 MB, app1 7.75 MB, nvs 448 kB. Firmware ~2.1 MB.
 
@@ -118,7 +119,9 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
 - Documentation-only commits (no firmware change) do not bump the version; they are logged under [Unreleased].
 
 ## Git
-- Remote `origin`: https://github.com/unir0x/waveshare-voice-satellite (private), branch `master`.
+- Remote `origin`: https://github.com/unir0x/waveshare-voice-satellite (public since 2026-09-27), branch `master`.
+- Public repo: before every commit also check for personal data (real name, e-mail, IP addresses, MAC, local
+  paths with the Windows user name). Commits use the GitHub noreply address.
 - Before committing, scan staged files for secrets (`git grep --cached` for the WiFi password, API key, MAC).
   `secrets.yaml` and `.esphome/` (compiled-in secrets) must stay ignored.
 
@@ -129,6 +132,12 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
   on reconnect). Ping rises from ~11 ms to ~60 ms while active. API action `force_power_save(minutes)` enables it
   on demand for tests/measurements.
 - Night quiet hours 01-06: battery warnings are postponed (level not consumed) and play after 06:00 if still low.
+- Measured 2026-09-27 with `tools/measure_power.py` (settle 15 min, alternating 30 min blocks): ~15.5 %/h normal,
+  ~10.3 %/h with WiFi modem sleep. The battery % is coarse; compare several blocks, not one.
+- Charge control: select `charge_limit` (4.0/4.1/4.2 V -> AXP2101 reg 0x64) plus script `apply_charge_control`
+  (runs on every battery reading): with the limit active, charging is paused (reg 0x18 bit 1 cleared) once full or
+  >= 90 % and re-enabled at <= 30 %; state `charge_paused` is restored across reboots. With USB connected the
+  device runs from VBUS, so a paused battery keeps its level. On-device switch `sw_charge` mirrors the select.
 - Documented alternative, not in the firmware: **deep sleep in the same windows** (prototyped and compiled
   2026-09-27, then dropped in favour of keeping the wake word). Design: `deep_sleep:` with
   `wakeup_pin: {number: GPIO11, inverted: true, allow_other_uses: true}` (touch INT, also set allow_other_uses on
@@ -143,4 +152,4 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
 ## Ideas / not done
 - Measure the power save schedule (battery % per hour with and without `force_power_save`); consider deep sleep
   (see Power) if it is not enough.
-- IMU wake-on-pick-up, RTC clock page, audio level visualization page (reuse `spk_tap` level).
+- RTC clock page, audio level visualization page (reuse `spk_tap` level).

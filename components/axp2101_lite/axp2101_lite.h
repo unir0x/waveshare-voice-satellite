@@ -70,6 +70,52 @@ class Axp2101Lite : public PollingComponent, public i2c::I2CDevice {
 
   float get_setup_priority() const override { return setup_priority::DATA; }
 
+  /// Charge target voltage in mV (4000, 4100 or 4200). Higher values are refused on purpose.
+  /// This only changes the charger setting (reg 0x64 bits 2:0), never a power rail.
+  bool set_charge_voltage(uint16_t mv) {
+    uint8_t code;
+    switch (mv) {
+      case 4000: code = 1; break;
+      case 4100: code = 2; break;
+      case 4200: code = 3; break;
+      default:
+        ESP_LOGW("axp2101_lite", "Refusing charge voltage %u mV", mv);
+        return false;
+    }
+    uint8_t v;
+    if (!this->read_byte(0x64, &v))
+      return false;
+    if ((v & 0x07) == code)
+      return true;
+    bool ok = this->write_byte(0x64, (v & 0xF8) | code);
+    ESP_LOGI("axp2101_lite", "Charge voltage set to %u mV (reg 0x64: 0x%02X -> 0x%02X)", mv, v, (v & 0xF8) | code);
+    return ok;
+  }
+
+  /// Enable/disable battery charging (reg 0x18 bit 1). With USB present the system keeps running from VBUS either way.
+  bool set_charging_enabled(bool enabled) {
+    uint8_t v;
+    if (!this->read_byte(0x18, &v))
+      return false;
+    uint8_t nv = enabled ? (v | 0x02) : (v & ~0x02);
+    if (nv == v)
+      return true;
+    ESP_LOGI("axp2101_lite", "Battery charging %s", enabled ? "enabled" : "paused");
+    return this->write_byte(0x18, nv);
+  }
+
+  bool is_charging_enabled() {
+    uint8_t v;
+    return this->read_byte(0x18, &v) && (v & 0x02);
+  }
+
+  /// Charge target voltage read back from the chip in mV, 0 if unknown.
+  uint16_t get_charge_voltage() {
+    static const uint16_t MV[] = {0, 4000, 4100, 4200, 4350, 4400, 0, 0};
+    uint8_t v;
+    return this->read_byte(0x64, &v) ? MV[v & 0x07] : 0;
+  }
+
  protected:
   bool read14_(uint8_t reg, uint16_t *out) {
     uint8_t h = 0, l = 0;
