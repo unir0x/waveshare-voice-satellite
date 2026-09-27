@@ -1,6 +1,6 @@
 substitutions:
   # Project version (semver). Bump it and add a CHANGELOG.md entry for every release; tag the commit vX.Y.Z.
-  version: "0.9.4"
+  version: "0.10.0"
   device_name: "waveshare-voice-satellite"
   friendly_name: "Waveshare Voice Satellite"
 
@@ -12,6 +12,7 @@ esphome:
     version: ${version}
   includes:
     - sysinfo.h
+    - schedule.h
   on_boot:
     priority: -100
     then:
@@ -71,6 +72,11 @@ api:
   encryption:
     key: !secret api_encryption_key
   actions:
+    - action: force_power_save
+      variables:
+        minutes: int
+      then:
+        - lambda: id(power_save_forced_until) = millis() + (uint32_t) minutes * 60000;
     - action: test_battery_warning
       variables:
         level: int
@@ -121,6 +127,9 @@ axp2101_lite:
             }
           }
           if (level > 0 && level < id(batt_warn_level)) {
+            auto now = id(rtc_time).now();
+            if (now.is_valid() && quiet_hours(now))
+              return;  // stay silent at night; warn after 06:00 if still low
             id(batt_warn_level) = level;
             if (id(warn_volume) > 0.0f)
               id(low_battery_warn).execute(level);
@@ -191,6 +200,15 @@ globals:
     type: float
     initial_value: "1.0"
   - id: warn_active
+    type: bool
+    initial_value: "false"
+  - id: power_save_active
+    type: bool
+    initial_value: "false"
+  - id: power_save_forced_until
+    type: uint32_t
+    initial_value: "0"
+  - id: playback_error
     type: bool
     initial_value: "false"
   - id: warn_volume
@@ -357,6 +375,20 @@ script:
             lv_label_set_text(id(lbl_warn_val), label(w).c_str());
           }
 
+  - id: show_playback_error
+    mode: restart
+    then:
+      - lambda: |-
+          id(playback_error) = true;
+          id(face_mode) = 4;
+          id(va_state) = "Inget ljud från Home Assistant";
+      - script.execute: screen_wake
+      - delay: 4s
+      - lambda: |-
+          id(playback_error) = false;
+          id(face_mode) = 0;
+          id(va_state) = "Redo - säg Okay Nabu";
+
   - id: refresh_labels
     then:
       - lvgl.label.update:
@@ -390,6 +422,7 @@ script:
                 "MAC:  %s\n"
                 "Drifttid:  %u h %02u min   Loop: %.0f ms\n"
                 "Omstart:  %s\n"
+                "Strömspar:  %s\n"
                 "Firmware:  v${version}  (ESPHome %s)",
                 ci.revision / 100, ci.revision % 100, ci.cores, (unsigned) (esp_clk_cpu_freq() / 1000000),
                 id(heap_free).state / 1024.0f, id(heap_min_free).state / 1024.0f,
@@ -400,6 +433,8 @@ script:
                 id(wifi_ip).state.c_str(), id(wifi_mac).state.c_str(),
                 up / 3600, (up % 3600) / 60, id(loop_time).state,
                 id(reset_reason).state.c_str(),
+                !id(power_save_schedule).state ? "schema av"
+                    : (id(power_save_active) ? "aktiv (WiFi sparläge)" : "schema på (01-06, vardagar 09-15, batteri)"),
                 ESPHOME_VERSION);
       - lvgl.label.update:
           id: lbl_heard
@@ -530,6 +565,25 @@ time:
           id: rtc_time
 
 interval:
+  # Power save schedule (windows in schedule.h, battery only): WiFi modem sleep while idle and listening for the
+  # wake word. Full power as soon as the assistant or the speaker is busy (also forced on wake word/playback).
+  # ESPHome re-applies power_save_mode none on reconnect, so compare with the actual mode every 5 s.
+  - interval: 5s
+    then:
+      - lambda: |-
+          auto now = id(rtc_time).now();
+          bool on_battery = id(usb_connected).has_state() && !id(usb_connected).state;
+          bool forced = (int32_t) (millis() - id(power_save_forced_until)) < 0;
+          bool window = forced ||
+                        (id(power_save_schedule).state && on_battery && now.is_valid() && sleep_window_end(now) >= 0);
+          bool busy = id(va).is_running() || id(va_media_player).state != media_player::MEDIA_PLAYER_STATE_IDLE;
+          id(power_save_active) = window && !busy;
+          wifi_ps_type_t want = id(power_save_active) ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE;
+          wifi_ps_type_t actual;
+          if (esp_wifi_get_ps(&actual) == ESP_OK && actual != want) {
+            esp_wifi_set_ps(want);
+            ESP_LOGI("power", "WiFi power save %s", id(power_save_active) ? "on" : "off");
+          }
   # Stuck playback guard: if Home Assistant fails to deliver the audio (e.g. HTTP 500 from the TTS proxy) the media
   # reader retries forever and the player stays "announcing". Stop it if no sound has played within 20 s.
   - interval: 1s
@@ -546,6 +600,7 @@ interval:
           else if (millis() - waiting_since > 20000) {
             ESP_LOGW("playback", "No audio after 20 s, stopping the stuck announcement");
             waiting_since = 0;
+            id(show_playback_error).execute();
             id(va_media_player).make_call().set_command(media_player::MEDIA_PLAYER_COMMAND_STOP).perform();
           }
   # Amplifier gating: the codec pops when the I2S speaker starts and when it stops (500 ms after its last sample).
@@ -654,6 +709,12 @@ interval:
             - script.execute: refresh_labels
 
 switch:
+  - platform: template
+    id: power_save_schedule
+    name: "Power Save Schedule"
+    icon: mdi:leaf
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
   - platform: gpio
     id: speaker_amp
     pin: GPIO46
@@ -725,8 +786,10 @@ media_player:
       - script.execute: update_vol_ui
     on_announcement:
       - micro_wake_word.stop:
+      - lambda: esp_wifi_set_ps(WIFI_PS_NONE);
     on_play:
       - micro_wake_word.stop:
+      - lambda: esp_wifi_set_ps(WIFI_PS_NONE);
     on_idle:
       - if:
           condition:
@@ -787,6 +850,7 @@ micro_wake_word:
     - model: okay_nabu
   on_wake_word_detected:
     - logger.log: "Wake word detected"
+    - lambda: esp_wifi_set_ps(WIFI_PS_NONE);
     - script.execute: screen_wake
     - if:
         condition:
@@ -862,6 +926,10 @@ voice_assistant:
           not:
             media_player.is_announcing: va_media_player
         timeout: 120s
+    - wait_until:
+        condition:
+          lambda: return !id(playback_error);
+        timeout: 10s
     - lambda: |-
         id(va_state) = "Redo - säg Okay Nabu";
         id(face_mode) = 0;

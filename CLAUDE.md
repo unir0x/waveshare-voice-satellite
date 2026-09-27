@@ -11,7 +11,9 @@ Swedish). User-facing overview: `README.md`.
 - `components/axp2101_lite/` – local AXP2101 reader (0x34): battery V/%, USB and system voltage, die temperature,
   charge state. Only enables ADC channels (reg 0x30), fuel gauge (0x18) and battery detection (0x68). Community
   AXP2101 components write M5Stack rail registers – do not use them.
-- `sysinfo.h` – ESP-IDF headers (ota, image, flash, psram, nvs, chip info) for the statistics page lambdas.
+- `sysinfo.h` – ESP-IDF headers (ota, image, flash, psram, nvs, chip info, wifi) for the lambdas.
+- `schedule.h` – power save windows (`sleep_window_end`: nightly 01-06, Mon-Fri 09-15) and night quiet hours
+  (`quiet_hours`: 01-06).
 - `sounds/` – Swedish clips and `make_sounds.py` (see "Voice clips").
 - `tools/` – aioesphomeapi helpers; `device.py` reads host and key from `secrets.yaml`.
   `watch_logs.py [s]`, `read_states.py`, `press_test.py "<button>"`, `play_test.py <url> [vol]`,
@@ -46,7 +48,9 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
   media with ffmpeg. This only works because the media player entity is visible to HA (it was `internal` early on,
   then HA ignored the format and sent MP3). Local WAV clips still decode via `files`.
 - A stuck-playback guard stops an announcement if the speaker has not started within 20 s (HA's TTS proxy can
-  return HTTP 500 and the ESPHome reader retries forever).
+  return HTTP 500 and the ESPHome reader retries forever), then `show_playback_error` shows a red face for 4 s
+  (global `playback_error` makes the voice assistant `on_end` wait for it). Seen with the Gemini voice on
+  time-only replies ("15:50").
 - ES8311 volume 100 % is +32 dB and clips; 0 dB is ~75 %. `volume_max: 81%` = level tuned by ear.
 - Mic and speaker share one I2S bus: `micro_wake_word` must be stopped before anything plays or the speaker loops on
   "Parent bus is busy". Media player `on_announcement`/`on_play` stop it, `on_idle` restarts it.
@@ -112,6 +116,25 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
 - Before committing, scan staged files for secrets (`git grep --cached` for the WiFi password, API key, MAC).
   `secrets.yaml` and `.esphome/` (compiled-in secrets) must stay ignored.
 
+## Power
+- Power save schedule (switch "Power Save Schedule", default on): inside the windows of `schedule.h`, on battery only,
+  WiFi goes to modem sleep (`esp_wifi_set_ps(WIFI_PS_MIN_MODEM)`) while idle; the wake word keeps listening. It is
+  forced off on wake word, announcement and play, and a 5 s interval re-applies the wanted mode (ESPHome resets it
+  on reconnect). Ping rises from ~11 ms to ~60 ms while active. API action `force_power_save(minutes)` enables it
+  on demand for tests/measurements.
+- Night quiet hours 01-06: battery warnings are postponed (level not consumed) and play after 06:00 if still low.
+- Documented alternative, not in the firmware: **deep sleep in the same windows** (prototyped and compiled
+  2026-09-27, then dropped in favour of keeping the wake word). Design: `deep_sleep:` with
+  `wakeup_pin: {number: GPIO11, inverted: true, allow_other_uses: true}` (touch INT, also set allow_other_uses on
+  the touchscreen `interrupt_pin`); a 30 s interval calls a script that stops micro_wake_word, blanks the display,
+  switches the amp off and runs `deep_sleep.enter` with a templatable `sleep_duration` until the window end
+  (`sleep_window_end`). Guards: battery only, valid clock, not while the assistant/speaker is busy, not within 5 min
+  of a boot/touch/wake word (so OTA stays possible), switch to disable. Record `esp_sleep_get_wakeup_cause()` at boot
+  (timer/touch). Trade-offs: no wake word and no battery warnings while asleep, entities unavailable in HA, display
+  panel/codecs/PMIC stay powered (only ESP32 + WiFi sleep). Saves the most.
+- The AXP2101 cannot measure current; estimate consumption from the battery % slope over time on battery.
+
 ## Ideas / not done
-- Power: WiFi `power_save_mode: light`.
+- Measure the power save schedule (battery % per hour with and without `force_power_save`); consider deep sleep
+  (see Power) if it is not enough.
 - IMU wake-on-pick-up, RTC clock page, audio level visualization page.

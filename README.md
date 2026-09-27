@@ -13,7 +13,7 @@ voice satellite with an animated touch UI, battery monitoring and spoken low-bat
 - **Click-free audio**: the amplifier is only on while sound plays, which removes the pops at start and end.
 - **Server-side audio conversion**: the device asks Home Assistant for 16 kHz mono FLAC, so cloud voices are
   converted on the server. If Home Assistant fails to deliver a reply, playback is stopped after 20 s instead of
-  hanging.
+  hanging, and the face shows a red "no audio from Home Assistant" state.
 - **Touch UI (LVGL)**, swipe left/right between four pages:
   1. **Face**: robot icon whose color and eyes follow the assistant state (ready, listening, thinking,
      replying, error, no Home Assistant). It is synced to the speaker: it thinks until the reply is actually
@@ -31,6 +31,8 @@ voice satellite with an animated touch UI, battery monitoring and spoken low-bat
   temperature, tilt, WiFi signal, uptime, free memory, reset reason. The firmware version is shown in the device
   info.
 - **RTC** kept in sync from Home Assistant.
+- **Power save schedule** on battery (01-06 daily, Mon-Fri 09-15): WiFi modem sleep while idle, wake word still
+  active. Night quiet hours 01-06 postpone battery warnings.
 
 ## Hardware
 
@@ -77,7 +79,7 @@ I2C: SDA GPIO15, SCL GPIO14. I2S: MCLK GPIO42, BCLK GPIO9, WS GPIO45, mic in GPI
 
 ## Status
 
-Current version: **v0.9.4** (see `CHANGELOG.md`; semantic versioning, every change is logged there and each
+Current version: **v0.10.0** (see `CHANGELOG.md`; semantic versioning, every change is logged there and each
 release is tagged and published on GitHub). The running firmware version is shown in Home Assistant and on the
 statistics page.
 
@@ -87,10 +89,14 @@ UI pages with speaker-synced face, sensors, battery warnings, volume page, click
 1.0.0 is planned once it has run stably in daily use for a while.
 
 Known limitations and ideas:
-- Power draw is roughly 150-250 mA (always-on WiFi and wake word); the battery lasts hours, not days. Possible
-  saving: WiFi power save "light".
-- Reply latency with a cloud pipeline (Gemini) is about 6 s after you stop speaking, almost all of it in the cloud
-  (speech-to-text ~1.5 s, answer ~1.8 s, voice ~2.5 s). A local TTS such as Piper cuts about 2 s.
+- Power draw is roughly 150-250 mA (always-on WiFi and wake word); the battery lasts hours, not days. A power save
+  schedule (WiFi modem sleep at night and on weekday daytime, on battery) reduces it while keeping the wake word.
+  A stronger option, deep sleep in the same windows (no wake word while asleep, wake by touch), is documented in
+  `CLAUDE.md` but not enabled.
+- Reply latency with a cloud pipeline (Gemini) is 4-11 s after you stop speaking, almost all of it in the cloud:
+  speech-to-text ~1.5 s, answer ~1-2 s, and the Gemini voice 2.5-8 s depending on reply length (it renders the
+  whole reply before sending). A local TTS such as Piper takes well under a second. The Gemini voice also returned
+  HTTP 500 for time-only replies like "15:50".
 - The mouth movement is animated, not driven by the actual audio level.
 - The wake word is "Okay Nabu". Other words need a different microWakeWord model; custom words (e.g. "Okay Lisa")
   would have to be trained first.

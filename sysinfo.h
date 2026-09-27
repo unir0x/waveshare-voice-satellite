@@ -7,3 +7,4 @@
 #include <esp_private/esp_clk.h>
 #include <esp_psram.h>
 #include <nvs.h>
+#include <esp_wifi.h>

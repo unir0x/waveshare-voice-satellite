@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-27
+
+### Added
+- Power save schedule (switch "Power Save Schedule", on by default): every night 01:00-06:00 and Monday-Friday
+  09:00-15:00, on battery only, WiFi runs in modem-sleep while the device keeps listening for "Okay Nabu". Full
+  power returns instantly on the wake word or playback. API action `force_power_save(minutes)` for testing.
+- Night quiet hours 01:00-06:00: battery warnings are postponed until 06:00.
+- Statistics page shows the power save state.
+- When the 20 s guard stops a reply that never produced audio, the face turns red with "Inget ljud från Home
+  Assistant" for 4 s instead of silently returning to ready.
+
 ## [0.9.4] - 2026-09-27
 
 ### Changed
@@ -70,7 +81,8 @@ First versioned release. Core features work; not yet proven in long-term daily u
 - A small click may remain at the end of a warning.
 - Power draw about 150-250 mA; battery lasts hours.
 
-[Unreleased]: https://github.com/unir0x/waveshare-voice-satellite/compare/v0.9.4...HEAD
+[Unreleased]: https://github.com/unir0x/waveshare-voice-satellite/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.10.0
 [0.9.4]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.4
 [0.9.3]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.3
 [0.9.2]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.2
