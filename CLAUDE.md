@@ -11,6 +11,11 @@ Swedish). User-facing overview: `README.md`.
 - `components/axp2101_lite/` – local AXP2101 reader (0x34): battery V/%, USB and system voltage, die temperature,
   charge state. Only enables ADC channels (reg 0x30), fuel gauge (0x18) and battery detection (0x68). Community
   AXP2101 components write M5Stack rail registers – do not use them.
+- `components/level_tap/` – pass-through `speaker` platform between `spk_res` and `i2s_spk`: forwards audio
+  unchanged, records RMS per 20 ms bin, `get_level(window_ms)` returns the level audible now (shifted by
+  `output_delay`, default 150 ms = I2S buffer + DMA). Mirrors the output speaker's state in `loop()` because
+  `is_running()` is not virtual. Stream properties are set explicitly (16 kHz, mono, 16 bit) so the resampler can
+  inherit them.
 - `sysinfo.h` – ESP-IDF headers (ota, image, flash, psram, nvs, chip info, wifi) for the lambdas.
 - `schedule.h` – power save windows (`sleep_window_end`: nightly 01-06, Mon-Fri 09-15) and night quiet hours
   (`quiet_hours`: 01-06).
@@ -60,7 +65,8 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
 
 ## UI (LVGL)
 - Pages (swipe left/right, wrap, 4 dots): `page_face`, `page_status`, `page_stats`, `page_volume`.
-- Face: robot icon (head outline, antenna, ears, pill eyes, mouth only when replying); color/eyes driven by global
+- Face: robot icon (head outline, antenna, ears, pill eyes, mouth only when replying, sized by
+  `id(spk_tap).get_level(100) / 0.18`: width 22-52 px, height 6-24 px); color/eyes driven by global
   `face_mode` (0 idle, 1 listening, 2 thinking, 3 replying, 4 error, 5 no HA) in a 100 ms `interval` lambda,
   only while `screen_on`. Labels refresh every 1 s via `refresh_labels`.
 - Screen off after 30 s: black `blackout` obj on top_layer, brightness 0, `lvgl.pause`. Wakes on touch or wake
@@ -137,4 +143,4 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
 ## Ideas / not done
 - Measure the power save schedule (battery % per hour with and without `force_power_save`); consider deep sleep
   (see Power) if it is not enough.
-- IMU wake-on-pick-up, RTC clock page, audio level visualization page.
+- IMU wake-on-pick-up, RTC clock page, audio level visualization page (reuse `spk_tap` level).

@@ -1,6 +1,6 @@
 substitutions:
   # Project version (semver). Bump it and add a CHANGELOG.md entry for every release; tag the commit vX.Y.Z.
-  version: "0.10.0"
+  version: "0.11.0"
   device_name: "waveshare-voice-satellite"
   friendly_name: "Waveshare Voice Satellite"
 
@@ -104,7 +104,7 @@ external_components:
   - source:
       type: local
       path: components
-    components: [axp2101_lite]
+    components: [axp2101_lite, level_tap]
 
 axp2101_lite:
   id: pmic
@@ -657,12 +657,19 @@ interval:
                 }
                 uint32_t col;
                 int ew = 26, eh = 46, ex = 40, ey = 5, dx = 0, dy = 0;
-                int mw = 0;
+                int mw = 0, mh = 10;
                 switch (mode) {
                   case 0: col = 0x1FC8D8; break;
                   case 1: col = 0x3FE8FF; ew = 30; eh = 56; break;
                   case 2: col = 0xFFB020; eh = 38; dy = -8; dx = (int) (14 * sinf(t * 0.15f)); break;
-                  case 3: col = 0x40F090; eh = 40; dy = -6; mw = 24 + (int) (esp_random() % 50); break;
+                  case 3: {
+                    // mouth follows the audible level (speech RMS ~0.05-0.2 -> 0..1)
+                    float lvl = std::min(1.0f, id(spk_tap).get_level(100) / 0.18f);
+                    col = 0x40F090; eh = 40; dy = -6;
+                    mw = 22 + (int) (lvl * 30);
+                    mh = 6 + (int) (lvl * 18);
+                    break;
+                  }
                   case 4: col = 0xFF4A4A; ew = 34; eh = 12; break;
                   default: col = 0x5A6470; ew = 30; eh = 8; break;
                 }
@@ -682,7 +689,8 @@ interval:
                   lv_obj_set_style_radius(eyes[i], (ew < eh ? ew : eh) / 2, 0);
                 }
                 if (mw > 0) {
-                  lv_obj_set_width(id(mouth), mw);
+                  lv_obj_set_size(id(mouth), mw, mh);
+                  lv_obj_set_style_radius(id(mouth), mh / 2, 0);
                   lv_obj_align(id(mouth), LV_ALIGN_CENTER, 0, 50);
                   if (!mouth_shown) {
                     lv_obj_clear_flag(id(mouth), LV_OBJ_FLAG_HIDDEN);
@@ -768,9 +776,17 @@ speaker:
     channel: mono
     buffer_duration: 100ms
 
+  # Measures the level of the audio on its way to the I2S speaker; drives the face's mouth.
+  - platform: level_tap
+    id: spk_tap
+    output_speaker: i2s_spk
+    sample_rate: 16000
+    num_channels: 1
+    bits_per_sample: 16
+
   - platform: resampler
     id: spk_res
-    output_speaker: i2s_spk
+    output_speaker: spk_tap
 
 media_player:
   - platform: speaker

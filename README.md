@@ -17,7 +17,7 @@ voice satellite with an animated touch UI, battery monitoring and spoken low-bat
 - **Touch UI (LVGL)**, swipe left/right between four pages:
   1. **Face**: robot icon whose color and eyes follow the assistant state (ready, listening, thinking,
      replying, error, no Home Assistant). It is synced to the speaker: it thinks until the reply is actually
-     audible and talks only while sound plays (also for warnings).
+     audible and talks only while sound plays (also for warnings); the mouth opens with the actual audio level.
   2. **Status**: state, IP address, battery.
   3. **Statistics** (scrollable): last recognized speech, system info (chip, RAM/PSRAM, flash/firmware, NVS,
      WiFi, uptime, reset reason) and sensors (battery, USB/system voltage, temperatures, tilt,
@@ -72,14 +72,16 @@ I2C: SDA GPIO15, SCL GPIO14. I2S: MCLK GPIO42, BCLK GPIO9, WS GPIO45, mic in GPI
 | `waveshare-voice.yaml` | The whole firmware configuration |
 | `secrets.example.yaml` | Template for the git-ignored `secrets.yaml` |
 | `components/axp2101_lite/` | Minimal AXP2101 reader (battery, voltages, temperature, charge state). Enables ADC channels only, never touches power rails |
-| `sysinfo.h` | ESP-IDF headers used by the statistics page |
+| `components/level_tap/` | Pass-through speaker that measures the audio level for the mouth animation |
+| `schedule.h` | Power save windows and night quiet hours |
+| `sysinfo.h` | ESP-IDF headers used by the statistics page and power save |
 | `sounds/*_sv.wav` | Swedish voice clips embedded in the firmware |
 | `sounds/make_sounds.py` | Regenerates the clips (Windows voice "Microsoft Bengt" or Piper `sv_SE-lisa-medium`) |
 | `tools/` | API helper scripts: live logs, entity states, button press, media playback, warning test |
 
 ## Status
 
-Current version: **v0.10.0** (see `CHANGELOG.md`; semantic versioning, every change is logged there and each
+Current version: **v0.11.0** (see `CHANGELOG.md`; semantic versioning, every change is logged there and each
 release is tagged and published on GitHub). The running firmware version is shown in Home Assistant and on the
 statistics page.
 
@@ -97,9 +99,9 @@ Known limitations and ideas:
   speech-to-text ~1.5 s, answer ~1-2 s, and the Gemini voice 2.5-8 s depending on reply length (it renders the
   whole reply before sending). A local TTS such as Piper takes well under a second. The Gemini voice also returned
   HTTP 500 for time-only replies like "15:50".
-- The mouth movement is animated, not driven by the actual audio level.
 - The wake word is "Okay Nabu". Other words need a different microWakeWord model; custom words (e.g. "Okay Lisa")
   would have to be trained first.
-- Unused so far: IMU for "wake on pick-up", clock page from the RTC, audio level visualization.
+- Unused so far: IMU for "wake on pick-up", clock page from the RTC, an audio level visualization page (the level
+  is already measured).
 
 See `CLAUDE.md` for the detailed engineering notes and lessons learned.

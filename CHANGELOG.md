@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-27
+
+### Changed
+- The face's mouth follows the actual audio level: a new pass-through speaker component (`components/level_tap`)
+  measures the level of the audio going to the speaker, delayed by the output buffer so it matches what is heard.
+  The mouth is also a bit smaller than before.
+
 ## [0.10.0] - 2026-09-27
 
 ### Added
@@ -81,7 +88,8 @@ First versioned release. Core features work; not yet proven in long-term daily u
 - A small click may remain at the end of a warning.
 - Power draw about 150-250 mA; battery lasts hours.
 
-[Unreleased]: https://github.com/unir0x/waveshare-voice-satellite/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/unir0x/waveshare-voice-satellite/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.11.0
 [0.10.0]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.10.0
 [0.9.4]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.4
 [0.9.3]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.3
