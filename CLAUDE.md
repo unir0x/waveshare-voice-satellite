@@ -44,7 +44,11 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
 - `resampler` speaker in front of the I2S speaker; codec runs at 16 kHz.
 - Announcement pipeline `format: NONE` (HA sends MP3; FLAC-only builds cannot decode it).
 - ES8311 volume 100 % is +32 dB and clips; 0 dB is ~75 %. `volume_max: 81%` = level tuned by ear.
-- Stop `micro_wake_word` while the voice assistant runs or a clip plays; restart it afterwards.
+- Mic and speaker share one I2S bus: `micro_wake_word` must be stopped before anything plays or the speaker loops on
+  "Parent bus is busy". Media player `on_announcement`/`on_play` stop it, `on_idle` restarts it.
+- Clicks: the codec pops when the I2S speaker starts and stops (500 ms after the last sample). The amp (GPIO46)
+  is gated by a 20 ms interval: on 30 ms after speaker start, off 150 ms after the last buffered sample. Clips
+  therefore need leading silence (200 ms); a 60 ms delay cut the first word.
 - Idea not done: advertise 16 kHz mono FLAC in the announcement pipeline so HA transcodes server-side.
 
 ## UI (LVGL)
@@ -105,6 +109,7 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
   `secrets.yaml` and `.esphome/` (compiled-in secrets) must stay ignored.
 
 ## Ideas / not done
-- Verify the click at the end of warnings is gone; else toggle the amp around the volume restore.
-- Power: WiFi `power_save_mode: light`, amp off when idle.
+- Power: WiFi `power_save_mode: light`.
+- Ask HA for 16 kHz mono audio (announcement pipeline format/sample_rate) so cloud voices (Gemini, 24 kHz) are
+  resampled on the server.
 - IMU wake-on-pick-up, RTC clock page, audio level visualization page.

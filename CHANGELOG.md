@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Changed
+- Developer notes (CLAUDE.md) document the shared I2S bus rule and the amplifier gating.
+
 ## [0.9.3] - 2026-09-27
 
 ### Changed
