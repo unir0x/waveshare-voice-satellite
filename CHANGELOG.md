@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/). The version lives in `waveshare-voice.yaml` (`substitutions: version`).
 
+## [0.9.1] - 2026-09-27
+
+### Fixed
+- Audio started from outside the voice assistant (e.g. `tts.speak` or media played from Home Assistant) never
+  played and left the player stuck in "playing": the wake word microphone kept the shared I2S bus. The wake word
+  now pauses whenever the media player plays or announces and resumes when it is idle.
+- The "Test Speaker" button looped forever for the same reason; it now plays the test phrase.
+
 ## [0.9.0] - 2026-09-26
 
 First versioned release. Core features work; not yet proven in long-term daily use.
@@ -24,4 +32,5 @@ First versioned release. Core features work; not yet proven in long-term daily u
 - A small click may remain at the end of a warning.
 - Power draw about 150-250 mA; battery lasts hours.
 
+[0.9.1]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.1
 [0.9.0]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.0

@@ -1,6 +1,6 @@
 substitutions:
   # Project version (semver). Bump it and add a CHANGELOG.md entry for every release; tag the commit vX.Y.Z.
-  version: "0.9.0"
+  version: "0.9.1"
   device_name: "waveshare-voice-satellite"
   friendly_name: "Waveshare Voice Satellite"
 
@@ -666,6 +666,19 @@ media_player:
       - script.execute: update_vol_ui
     on_unmute:
       - script.execute: update_vol_ui
+    on_announcement:
+      - micro_wake_word.stop:
+    on_play:
+      - micro_wake_word.stop:
+    on_idle:
+      - if:
+          condition:
+            and:
+              - not:
+                  voice_assistant.is_running:
+              - lambda: return id(face_mode) != 5;
+          then:
+            - micro_wake_word.start:
     announcement_pipeline:
       speaker: spk_res
       format: NONE
@@ -685,10 +698,6 @@ media_player:
       - id: snd_test_volume
         file: sounds/test_volume_sv.wav
 
-rtttl:
-  id: tone_player
-  speaker: i2s_spk
-
 button:
   - platform: restart
     name: "Restart"
@@ -706,7 +715,7 @@ button:
   - platform: template
     name: "Test Speaker"
     on_press:
-      - rtttl.play: "beep:d=8,o=6,b=180:c,e,g,c7,g,e,c"
+      - script.execute: play_test_phrase
 
 micro_wake_word:
   id: mww
