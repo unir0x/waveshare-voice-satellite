@@ -101,6 +101,7 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
   not only at release time.
 - Release: move [Unreleased] into `## [X.Y.Z] - date`, bump `version`, flash the device, commit, annotated tag
   `vX.Y.Z`, push commit and tag, create a GitHub release from the changelog entry, update the compare links.
+  Update `README.md` in the same release (Features, "Current version" and Status/limitations must match).
 - Documentation-only commits (no firmware change) do not bump the version; they are logged under [Unreleased].
 
 ## Git
