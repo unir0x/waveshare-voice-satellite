@@ -93,8 +93,11 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
   `esphome: project: version` (shown in Home Assistant device info) and the statistics page.
 - Every change that is committed gets a version bump: PATCH for fixes/tweaks, MINOR for new features, MAJOR for
   breaking changes (e.g. new secrets required, re-pairing with HA). 1.0.0 once it has run stably in daily use.
-- For each version: update `CHANGELOG.md` (Keep a Changelog), flash the device, commit, annotated tag `vX.Y.Z`,
-  push commit and tag, create a GitHub release from the changelog entry.
+- Log every change in `CHANGELOG.md` under `## [Unreleased]` as soon as it is made (Added/Changed/Fixed/Removed),
+  not only at release time.
+- Release: move [Unreleased] into `## [X.Y.Z] - date`, bump `version`, flash the device, commit, annotated tag
+  `vX.Y.Z`, push commit and tag, create a GitHub release from the changelog entry, update the compare links.
+- Documentation-only commits (no firmware change) do not bump the version; they are logged under [Unreleased].
 
 ## Git
 - Remote `origin`: https://github.com/unir0x/waveshare-voice-satellite (private), branch `master`.
