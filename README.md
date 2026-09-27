@@ -6,10 +6,15 @@ voice satellite with an animated touch UI, battery monitoring and spoken low-bat
 ## Features
 
 - **Voice assistant**: on-device wake word "Okay Nabu" (microWakeWord), speech streamed to the Home Assistant
-  Assist pipeline (tested with Whisper + Piper, Swedish). Replies play on the built-in speaker.
+  Assist pipeline. Tested with local Whisper + Piper and with cloud Google Gemini, in Swedish. Replies play on the
+  built-in speaker; long replies (cloud LLMs) are supported.
+- **Speaker for Home Assistant**: exposed as a media player, so `tts.speak`, announcements and media from Home
+  Assistant play too (the wake word pauses automatically while anything plays).
+- **Click-free audio**: the amplifier is only on while sound plays, which removes the pops at start and end.
 - **Touch UI (LVGL)**, swipe left/right between four pages:
   1. **Face**: robot icon whose color and eyes follow the assistant state (ready, listening, thinking,
-     replying, error, no Home Assistant).
+     replying, error, no Home Assistant). It is synced to the speaker: it thinks until the reply is actually
+     audible and talks only while sound plays (also for warnings).
   2. **Status**: state, IP address, battery.
   3. **Statistics** (scrollable): last recognized speech, system info (chip, RAM/PSRAM, flash/firmware, NVS,
      WiFi, uptime, reset reason) and sensors (battery, USB/system voltage, temperatures, tilt,
@@ -20,7 +25,8 @@ voice satellite with an animated touch UI, battery monitoring and spoken low-bat
   firmware so they work without Home Assistant. Separate warning volume, audible even when the assistant is
   muted.
 - **Sensors in Home Assistant**: battery level/voltage, charging state, USB and system voltage, PMIC/chip/IMU
-  temperature, tilt, WiFi signal, uptime, free memory, reset reason.
+  temperature, tilt, WiFi signal, uptime, free memory, reset reason. The firmware version is shown in the device
+  info.
 - **RTC** kept in sync from Home Assistant.
 
 ## Hardware
@@ -68,17 +74,23 @@ I2C: SDA GPIO15, SCL GPIO14. I2S: MCLK GPIO42, BCLK GPIO9, WS GPIO45, mic in GPI
 
 ## Status
 
-Current version: see `CHANGELOG.md` (semantic versioning; the firmware version is shown in Home Assistant and on
-the statistics page).
+Current version: **v0.9.3** (see `CHANGELOG.md`; semantic versioning, every change is logged there and each
+release is tagged and published on GitHub). The running firmware version is shown in Home Assistant and on the
+statistics page.
 
-Working: wake word, Assist round trip with clear audio, UI pages, sensors, battery warnings, volume page.
+Working: wake word, Assist round trip with clear audio (local and cloud pipelines), playback from Home Assistant,
+UI pages with speaker-synced face, sensors, battery warnings, volume page, click-free speaker.
 
-Known issues and ideas:
-- A small click may remain at the end of a warning (volume restore); needs listening test.
+1.0.0 is planned once it has run stably in daily use for a while.
+
+Known limitations and ideas:
+- Power draw is roughly 150-250 mA (always-on WiFi and wake word); the battery lasts hours, not days. Possible
+  saving: WiFi power save "light".
+- Cloud voices such as Gemini are generated at 24 kHz and resampled on the device; asking Home Assistant for
+  16 kHz audio would let the server do it with better quality.
+- The mouth movement is animated, not driven by the actual audio level.
 - "Hey Jarvis" was tried as wake word but did not trigger reliably with Swedish pronunciation. A custom
   "Okay Lisa" would need training a microWakeWord model.
-- Power draw is roughly 150-250 mA (always-on WiFi and wake word); battery lasts hours, not days. Possible
-  savings: WiFi power save "light", amplifier off when idle.
 - Unused so far: IMU for "wake on pick-up", clock page from the RTC, audio level visualization.
 
 See `CLAUDE.md` for the detailed engineering notes and lessons learned.

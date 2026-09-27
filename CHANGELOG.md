@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 - Developer notes (CLAUDE.md) document the shared I2S bus rule and the amplifier gating.
+- README updated for v0.9.3: speaker-synced face, playback from Home Assistant, click-free audio, cloud
+  pipelines, current status and limitations.
 
 ## [0.9.3] - 2026-09-27
 
