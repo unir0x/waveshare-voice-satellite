@@ -1,6 +1,6 @@
 substitutions:
   # Project version (semver). Bump it and add a CHANGELOG.md entry for every release; tag the commit vX.Y.Z.
-  version: "0.9.3"
+  version: "0.9.4"
   device_name: "waveshare-voice-satellite"
   friendly_name: "Waveshare Voice Satellite"
 
@@ -530,6 +530,24 @@ time:
           id: rtc_time
 
 interval:
+  # Stuck playback guard: if Home Assistant fails to deliver the audio (e.g. HTTP 500 from the TTS proxy) the media
+  # reader retries forever and the player stays "announcing". Stop it if no sound has played within 20 s.
+  - interval: 1s
+    then:
+      - lambda: |-
+          static uint32_t waiting_since = 0;
+          bool announcing = id(va_media_player).state == media_player::MEDIA_PLAYER_STATE_ANNOUNCING;
+          if (!announcing || id(i2s_spk).is_running()) {
+            waiting_since = 0;
+            return;
+          }
+          if (waiting_since == 0)
+            waiting_since = millis();
+          else if (millis() - waiting_since > 20000) {
+            ESP_LOGW("playback", "No audio after 20 s, stopping the stuck announcement");
+            waiting_since = 0;
+            id(va_media_player).make_call().set_command(media_player::MEDIA_PLAYER_COMMAND_STOP).perform();
+          }
   # Amplifier gating: the codec pops when the I2S speaker starts and when it stops (500 ms after its last sample).
   # Switch the amp on 30 ms after the speaker started (the clips have 200 ms leading silence) and off 150 ms after
   # the last sample, so it is off at both pops.
@@ -718,9 +736,13 @@ media_player:
               - lambda: return id(face_mode) != 5;
           then:
             - micro_wake_word.start:
+    # Ask Home Assistant for 16 kHz mono FLAC: it transcodes TTS and media with ffmpeg on the server, so cloud voices
+    # (e.g. Gemini, 24 kHz) are not resampled on the device. Local WAV clips stay supported via `files`.
     announcement_pipeline:
       speaker: spk_res
-      format: NONE
+      format: FLAC
+      sample_rate: 16000
+      num_channels: 1
     files:
       - id: snd_low_battery
         file: sounds/low_battery_sv.wav

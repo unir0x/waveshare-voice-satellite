@@ -6,12 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-09-27
+
 ### Changed
+- The speaker asks Home Assistant for 16 kHz mono FLAC, so TTS and media (including 24 kHz cloud voices such
+  as Gemini) are converted on the server instead of resampled on the device.
+- `tools/watch_logs.py` prints elapsed time for each line, to measure pipeline latency.
 - Developer notes (CLAUDE.md) document the shared I2S bus rule and the amplifier gating.
 - README updated for v0.9.3: speaker-synced face, playback from Home Assistant, click-free audio, cloud
   pipelines, current status and limitations.
 - The release routine now includes updating the README.
 - README no longer mentions the abandoned "Hey Jarvis" test; it states the wake word is "Okay Nabu".
+
+### Fixed
+- A reply whose audio Home Assistant cannot deliver (e.g. HTTP 500 from the TTS proxy) no longer leaves the
+  speaker stuck retrying: playback is stopped if no sound has played within 20 s.
 
 ## [0.9.3] - 2026-09-27
 
@@ -61,7 +70,8 @@ First versioned release. Core features work; not yet proven in long-term daily u
 - A small click may remain at the end of a warning.
 - Power draw about 150-250 mA; battery lasts hours.
 
-[Unreleased]: https://github.com/unir0x/waveshare-voice-satellite/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/unir0x/waveshare-voice-satellite/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.4
 [0.9.3]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.3
 [0.9.2]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.2
 [0.9.1]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.1

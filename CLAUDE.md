@@ -42,14 +42,17 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
 - ONE shared `i2s_audio` hub for mic and speaker (ESP32 master). Two hubs with mic as clock master, or ES8311 as
   master, both failed.
 - `resampler` speaker in front of the I2S speaker; codec runs at 16 kHz.
-- Announcement pipeline `format: NONE` (HA sends MP3; FLAC-only builds cannot decode it).
+- Announcement pipeline asks HA for FLAC 16 kHz mono (`format/sample_rate/num_channels`); HA transcodes TTS and
+  media with ffmpeg. This only works because the media player entity is visible to HA (it was `internal` early on,
+  then HA ignored the format and sent MP3). Local WAV clips still decode via `files`.
+- A stuck-playback guard stops an announcement if the speaker has not started within 20 s (HA's TTS proxy can
+  return HTTP 500 and the ESPHome reader retries forever).
 - ES8311 volume 100 % is +32 dB and clips; 0 dB is ~75 %. `volume_max: 81%` = level tuned by ear.
 - Mic and speaker share one I2S bus: `micro_wake_word` must be stopped before anything plays or the speaker loops on
   "Parent bus is busy". Media player `on_announcement`/`on_play` stop it, `on_idle` restarts it.
 - Clicks: the codec pops when the I2S speaker starts and stops (500 ms after the last sample). The amp (GPIO46)
   is gated by a 20 ms interval: on 30 ms after speaker start, off 150 ms after the last buffered sample. Clips
   therefore need leading silence (200 ms); a 60 ms delay cut the first word.
-- Idea not done: advertise 16 kHz mono FLAC in the announcement pipeline so HA transcodes server-side.
 
 ## UI (LVGL)
 - Pages (swipe left/right, wrap, 4 dots): `page_face`, `page_status`, `page_stats`, `page_volume`.
@@ -111,6 +114,4 @@ Logger must use `hardware_uart: USB_SERIAL_JTAG` to see logs on COM6.
 
 ## Ideas / not done
 - Power: WiFi `power_save_mode: light`.
-- Ask HA for 16 kHz mono audio (announcement pipeline format/sample_rate) so cloud voices (Gemini, 24 kHz) are
-  resampled on the server.
 - IMU wake-on-pick-up, RTC clock page, audio level visualization page.
