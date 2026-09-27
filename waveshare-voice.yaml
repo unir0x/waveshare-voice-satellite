@@ -1,6 +1,6 @@
 substitutions:
   # Project version (semver). Bump it and add a CHANGELOG.md entry for every release; tag the commit vX.Y.Z.
-  version: "0.9.1"
+  version: "0.9.2"
   device_name: "waveshare-voice-satellite"
   friendly_name: "Waveshare Voice Satellite"
 
@@ -542,7 +542,24 @@ interval:
                 static uint32_t last_col = 0xFFFFFFFF;
                 static bool mouth_shown = false;
                 t++;
+                // Face follows the speaker: think until the reply is audible, talk while it plays; once audio has
+                // started in this turn never fall back to thinking (the gap before the pipeline ends flickered).
+                static bool heard_reply = false;
                 int mode = id(face_mode);
+                bool talking = id(i2s_spk).is_running();
+                if (mode == 1)
+                  heard_reply = false;
+                if (mode == 2 && talking)
+                  heard_reply = true;
+                if ((mode == 0 || mode == 2 || mode == 3) && talking)
+                  mode = 3;
+                else if (mode == 2 || mode == 3)
+                  mode = heard_reply ? 0 : 2;
+                if (id(face_mode) == 2 || id(face_mode) == 3) {
+                  const char *txt = heard_reply ? "Svarar..." : "Tänker...";
+                  if (id(va_state) != txt)
+                    id(va_state) = txt;
+                }
                 uint32_t col;
                 int ew = 26, eh = 46, ex = 40, ey = 5, dx = 0, dy = 0;
                 int mw = 0;
@@ -769,9 +786,7 @@ voice_assistant:
         id(va_state) = "Tänker...";
         id(face_mode) = 2;
   on_tts_start:
-    - lambda: |-
-        id(va_state) = "Svarar...";
-        id(face_mode) = 3;
+    - lambda: id(face_mode) = 2;
   on_stt_end:
     - lambda: id(last_stt) = x;
     - logger.log:
@@ -802,7 +817,7 @@ voice_assistant:
         condition:
           not:
             media_player.is_announcing: va_media_player
-        timeout: 30s
+        timeout: 120s
     - lambda: |-
         id(va_state) = "Redo - säg Okay Nabu";
         id(face_mode) = 0;

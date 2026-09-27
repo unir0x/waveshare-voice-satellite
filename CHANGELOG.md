@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/). The version lives in `waveshare-voice.yaml` (`substitutions: version`).
 
+## [0.9.2] - 2026-09-27
+
+### Changed
+- The face follows the speaker instead of pipeline events: it thinks until reply audio actually plays and talks
+  only while the speaker outputs sound (also for warnings and the test phrase); after the reply has started it
+  never falls back to thinking, which removes a yellow flicker at the end. The status text follows too.
+- Long replies (e.g. cloud LLM assistants) may play for up to 2 minutes before the display returns to "ready"
+  (was 30 s).
+
 ## [0.9.1] - 2026-09-27
 
 ### Fixed
@@ -32,5 +41,6 @@ First versioned release. Core features work; not yet proven in long-term daily u
 - A small click may remain at the end of a warning.
 - Power draw about 150-250 mA; battery lasts hours.
 
+[0.9.2]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.2
 [0.9.1]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.1
 [0.9.0]: https://github.com/unir0x/waveshare-voice-satellite/releases/tag/v0.9.0
