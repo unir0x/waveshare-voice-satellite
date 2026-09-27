@@ -11,6 +11,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - README updated for v0.9.3: speaker-synced face, playback from Home Assistant, click-free audio, cloud
   pipelines, current status and limitations.
 - The release routine now includes updating the README.
+- README no longer mentions the abandoned "Hey Jarvis" test; it states the wake word is "Okay Nabu".
 
 ## [0.9.3] - 2026-09-27
 

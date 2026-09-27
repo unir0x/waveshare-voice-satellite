@@ -89,8 +89,8 @@ Known limitations and ideas:
 - Cloud voices such as Gemini are generated at 24 kHz and resampled on the device; asking Home Assistant for
   16 kHz audio would let the server do it with better quality.
 - The mouth movement is animated, not driven by the actual audio level.
-- "Hey Jarvis" was tried as wake word but did not trigger reliably with Swedish pronunciation. A custom
-  "Okay Lisa" would need training a microWakeWord model.
+- The wake word is "Okay Nabu". Other words need a different microWakeWord model; custom words (e.g. "Okay Lisa")
+  would have to be trained first.
 - Unused so far: IMU for "wake on pick-up", clock page from the RTC, audio level visualization.
 
 See `CLAUDE.md` for the detailed engineering notes and lessons learned.
